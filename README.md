@@ -2,6 +2,8 @@
 
 24 小时重启系统的仪式引导器。设计文档见 [DESIGN.md](./DESIGN.md)。
 
+**线上地址：<https://langrenxdh.github.io/restart24/>**（GitHub Pages 免费托管，push `main` 自动部署）
+
 ## 当前：M1–M4（心跳 / 接力 / 保护 / 回望）
 
 - **晨间启动**：3 步身体唤醒 + 写下今天唯一的 MIT（下午后自动切换为 30 秒压缩版）；**昨夜锚点自动预填**，只确认或微调，If-Then 原话回显
@@ -44,11 +46,12 @@ npm run typecheck
 2. **页面通知**：桌面 Chrome / Android 上可开启（安装引导卡片里），App 开着时弹系统通知
 3. **系统闹钟兜底（推荐）**：给晨间配一个系统闹钟（如 7:00）。这不妥协——设计文档明确「晨间通知需要系统闹钟兜底」，闹钟响 + 打开主屏图标，两步进入今天的 MIT
 
-## 部署
+## 部署（已上线 GitHub Pages）
 
-`npm run build` 产出纯静态 `dist/`，任何静态托管都能用：
-
-- Vercel / Netlify / Cloudflare Pages：连 Git 仓库即自动部署
-- 本地体验 PWA：`npm run preview` → http://localhost:4173（Service Worker 只在 build/preview 下生效）
+- 线上：<https://langrenxdh.github.io/restart24/>
+- 仓库：<https://github.com/langrenxdh/restart24>（Public，免费 Pages 的要求）
+- 更新流程：本地改完 → `git add -A && git commit -m "..."` → `git push` → Actions 自动构建部署（约 1 分钟）
+- 手机安装：Safari 打开线上地址 → 分享 → 添加到主屏幕
+- 备选托管：`dist/` 纯静态，Vercel / Netlify / Cloudflare Pages 任选
 
 图标生成：`node scripts/gen-icons.mjs`（零依赖，纸底 + 赭橙圆 + 白色「24」）。
