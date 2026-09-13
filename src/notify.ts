@@ -2,7 +2,7 @@
 export function notify(title: string, body: string): void {
   try {
     if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-      new Notification(title, { body, icon: '/icons/icon-192.png', tag: 'restart24' })
+      new Notification(title, { body, icon: 'icons/icon-192.png', tag: 'restart24' })
     }
   } catch {
     // 平台不支持页面通知时静默
