@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+@theme {
+  --color-paper: #f8f2e7;
+  --color-paper-deep: #efe5d2;
+  --color-ink: #33291c;
+  --color-ink-soft: #7c6c53;
+  --color-ember: #c05f1c;
+  --color-moss: #6f7a4d;
+  --font-display: Georgia, "Songti SC", "Noto Serif SC", "STSong", serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-paper);
+  background-image: radial-gradient(rgba(51, 41, 28, 0.045) 1px, transparent 1px);
+  background-size: 22px 22px;
+  color: var(--color-ink);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
