@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { computeChain, normalizeDay } from '../lib/domain'
+import { computeChain } from '../lib/domain'
 import { shiftKey, todayKey } from '../lib/dates'
 import { EVENING_OPEN_HOUR, LATE_NIGHT_HOUR, TICK_MS } from '../config'
 import { db, ensureSchema, getDay, sweepStaleSessions } from '../db'
@@ -23,6 +23,7 @@ export function useToday() {
   const [relay, setRelay] = useState<Anchor | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const [notice, setNotice] = useState<Notice>(null)
+  const [initError, setInitError] = useState<string | null>(null)
   const noticedRef = useRef<Set<string>>(new Set())
 
   const refresh = useCallback(async (): Promise<DayRecord> => {
@@ -37,17 +38,23 @@ export function useToday() {
     return d
   }, [])
 
-  // 启动：清扫僵尸会话（非今日残留 running）→ 加载今日
-  const initRef = useRef(false)
-  useEffect(() => {
-    if (initRef.current) return
-    initRef.current = true
-    void (async () => {
+  // 启动：清扫僵尸会话（非今日残留 running）→ 加载今日。
+  // 存储不可用（隐私模式/配额满/损坏）时给出明确错误态，不永久转圈（评审 #9）
+  const init = useCallback(async () => {
+    setInitError(null)
+    try {
       await ensureSchema()
       await sweepStaleSessions()
       await refresh()
-    })()
+    } catch {
+      setInitError('本地存储读不了：可能是浏览器隐私模式或存储已满。退出隐私模式或清理空间后重试。')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refresh])
+
+  useEffect(() => {
+    void init()
+  }, [init])
 
   // 心跳：只驱动渲染重算，时间本身永远用时间戳算
   useEffect(() => {
@@ -84,5 +91,5 @@ export function useToday() {
     setNotice(next)
   }, [day, now])
 
-  return { day, chain, relay, now, dayKey, notice, refresh, normalize: normalizeDay }
+  return { day, chain, relay, now, dayKey, notice, initError, retry: init, refresh }
 }

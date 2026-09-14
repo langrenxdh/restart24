@@ -2,6 +2,7 @@ import { db } from './db'
 import { dayStatus, normalizeDay, type DayStatus } from './lib/domain'
 import { dateLabel, shiftKey, todayKey } from './lib/dates'
 import type { DayRecord, Rule, Task } from './lib/types'
+import { sanitizeProofUrl } from './lib/url'
 
 function download(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob)
@@ -26,23 +27,76 @@ export async function exportJSON(): Promise<void> {
   )
 }
 
-/** 导入备份（覆盖现有全部数据） */
-export async function importJSON(text: string): Promise<void> {
-  const data = JSON.parse(text) as { days?: unknown[]; rules?: unknown[]; tasks?: unknown[] }
-  if (!Array.isArray(data.days)) throw new Error('备份文件里没有 days 数据')
-  const days = data.days.filter((d): d is DayRecord => typeof (d as DayRecord)?.date === 'string')
-  const rules = Array.isArray(data.rules)
-    ? data.rules.filter((r): r is Rule => {
-        const rule = r as Rule
-        return typeof rule?.id === 'string' && typeof rule?.text === 'string'
-      })
+export interface ImportResult {
+  days: number
+  rules: number
+  tasks: number
+  skipped: number
+}
+
+/**
+ * 导入备份（覆盖现有全部数据）。
+ * 导入是唯一的外部数据入口，必须在这里挡住畸形数据（评审 #2）：
+ * - 校验 app 标记，拒绝未知来源
+ * - 每条 day 逐条归一化（补数组/字段、旧格式转换、proofUrl 白名单）
+ * - rules/tasks 补默认值（缺 uses/doneAt 等不再产生 NaN 排序）
+ * - 畸形条目跳过并计数，不中断整体导入
+ */
+export async function importJSON(text: string): Promise<ImportResult> {
+  let data: unknown
+  try {
+    data = JSON.parse(text)
+  } catch {
+    throw new Error('不是有效的 JSON 文件')
+  }
+  if (typeof data !== 'object' || data === null) throw new Error('备份文件格式不对')
+  const obj = data as Record<string, unknown>
+  if (obj.app !== 'restart24') throw new Error('这不是重启24 的备份文件（app 标记不匹配）')
+  if (!Array.isArray(obj.days)) throw new Error('备份文件里没有 days 数据')
+
+  let skipped = 0
+  const days: DayRecord[] = []
+  for (const raw of obj.days) {
+    const d = raw as DayRecord
+    if (typeof d?.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(d.date)) {
+      skipped++
+      continue
+    }
+    days.push(
+      normalizeDay({
+        ...d,
+        // 数组存在时才重建（过滤畸形条目 + proofUrl 白名单）；
+        // 不存在时保留原样，让 normalizeDay 处理 v2 单数 deliverable 旧格式
+        ...(Array.isArray(d.deliverables)
+          ? {
+              deliverables: d.deliverables
+                .filter((x) => x && typeof x.text === 'string' && x.text.trim())
+                .map((x) => ({ ...x, proofUrl: sanitizeProofUrl(x.proofUrl) })),
+            }
+          : {}),
+        ...(Array.isArray(d.focusSessions)
+          ? {
+              focusSessions: d.focusSessions.filter(
+                (s) => s && typeof s.id === 'string' && typeof s.startedAt === 'number',
+              ),
+            }
+          : {}),
+      }),
+    )
+  }
+
+  const now = Date.now()
+  const rules: Rule[] = Array.isArray(obj.rules)
+    ? obj.rules.filter((r): r is Rule => !!r && typeof (r as Rule).id === 'string' && typeof (r as Rule).text === 'string')
+        .map((r) => ({ ...r, uses: typeof r.uses === 'number' ? r.uses : 0, updatedAt: typeof r.updatedAt === 'number' ? r.updatedAt : now }))
     : []
-  const tasks = Array.isArray(data.tasks)
-    ? data.tasks.filter((t): t is Task => {
-        const task = t as Task
-        return typeof task?.id === 'string' && typeof task?.text === 'string'
-      })
+  const tasks: Task[] = Array.isArray(obj.tasks)
+    ? obj.tasks.filter((t): t is Task => !!t && typeof (t as Task).id === 'string' && typeof (t as Task).text === 'string')
+        .map((t) => ({ ...t, createdAt: typeof t.createdAt === 'number' ? t.createdAt : now, doneAt: typeof t.doneAt === 'number' ? t.doneAt : null }))
     : []
+
+  if (days.length === 0) throw new Error('没有一条有效的日记录')
+
   await db.transaction('rw', db.days, db.rules, db.tasks, async () => {
     await db.days.clear()
     await db.rules.clear()
@@ -51,6 +105,7 @@ export async function importJSON(text: string): Promise<void> {
     await db.rules.bulkPut(rules)
     await db.tasks.bulkPut(tasks)
   })
+  return { days: days.length, rules: rules.length, tasks: tasks.length, skipped }
 }
 
 function statusText(status: DayStatus): string {

@@ -10,6 +10,7 @@ import {
   upsertRuleByText,
 } from '../db'
 import { DEFAULT_ANCHOR_START } from '../config'
+import { sanitizeProofUrl } from '../lib/url'
 import { DELIVERABLE_TEMPLATES } from '../copy'
 import { Chip, GhostButton, PrimaryButton, Screen } from './ui'
 
@@ -69,7 +70,17 @@ export default function EveningFlow({
 }) {
   // 本流程复盘的是打开时那一天：跨午夜继续写也归那天的记录
   const dateRef = useRef(day.date)
-  const [step, setStep] = useState(0)
+  // 进度保持：中途退出/误点成果墙回来，从上次的步骤继续（评审 #16）
+  const stepKey = `r24.evening.step.${day.date}`
+  const [step, setStepState] = useState(() => {
+    const n = Number(sessionStorage.getItem(stepKey))
+    return Number.isFinite(n) && n > 0 && n <= STEP.DONE ? n : 0
+  })
+  const setStep = (n: number) => {
+    setStepState(n)
+    if (n === STEP.DONE) sessionStorage.removeItem(stepKey)
+    else sessionStorage.setItem(stepKey, String(n))
+  }
   const [review, setReview] = useState<Record<ReviewKey, string>>(
     day.review ?? { best: '', blocker: '', action: '', keep: '', drop: '' },
   )
@@ -126,7 +137,7 @@ export default function EveningFlow({
   async function persistDeliverable() {
     await appendDeliverable(dateRef.current, {
       text: deliverableText.trim(),
-      proofUrl: proofUrl.trim() || undefined,
+      proofUrl: sanitizeProofUrl(proofUrl),
       loggedAt: Date.now(),
     })
     onChanged()
@@ -135,7 +146,7 @@ export default function EveningFlow({
 
   async function finish() {
     await updateDay(dateRef.current, {
-      anchor: { nextStep: nextStep.trim(), where: where.trim(), startTime, ifThen: ifThen.trim() || undefined },
+      anchor: { nextStep: nextStep.trim(), where: where.trim(), startTime: startTime || DEFAULT_ANCHOR_START, ifThen: ifThen.trim() || undefined },
       eveningDone: true,
     })
     await upsertRuleByText(ifThen)
@@ -155,6 +166,7 @@ export default function EveningFlow({
           value={review[q.key]}
           onChange={(e) => setReview({ ...review, [q.key]: e.target.value } as Record<ReviewKey, string>)}
           rows={4}
+          maxLength={300}
           placeholder={q.ph || '可以留空'}
           className={`mt-6 ${textareaCls}`}
         />
@@ -234,6 +246,7 @@ export default function EveningFlow({
           value={deliverableText}
           onChange={(e) => setDeliverableText(e.target.value)}
           rows={4}
+          maxLength={200}
           placeholder="最小版本的可见成果…"
           className={`mt-5 ${textareaCls}`}
         />
@@ -247,7 +260,8 @@ export default function EveningFlow({
         <input
           value={proofUrl}
           onChange={(e) => setProofUrl(e.target.value)}
-          placeholder="成果链接或文件位置（可选）"
+          maxLength={500}
+          placeholder="成果链接（https://…，可选）"
           className={`mt-3 ${inputCls}`}
         />
         <div className="mt-auto space-y-3 pb-4 pt-6">
@@ -283,6 +297,7 @@ export default function EveningFlow({
           value={nextStep}
           onChange={(e) => setNextStep(e.target.value)}
           rows={3}
+          maxLength={200}
           placeholder="我要完成：一个看得见的成果"
           className={`mt-3 ${textareaCls}`}
         />
@@ -296,6 +311,7 @@ export default function EveningFlow({
         <input
           value={where}
           onChange={(e) => setWhere(e.target.value)}
+          maxLength={100}
           placeholder="在哪做 / 文件在哪（可选）"
           className={`mt-3 ${inputCls}`}
         />
@@ -360,6 +376,7 @@ export default function EveningFlow({
           value={ifThen}
           onChange={(e) => setIfThen(e.target.value)}
           rows={3}
+          maxLength={200}
           placeholder="如果明早想拖延，我就先启动计时器，只做 5 分钟"
           className={`mt-5 ${textareaCls}`}
         />

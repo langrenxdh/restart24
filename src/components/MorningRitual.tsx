@@ -73,7 +73,7 @@ export default function MorningRitual({
       </p>
       {relay && (
         <div className="mt-4 rounded-2xl bg-paper-deep px-4 py-3 text-sm leading-relaxed text-ink-soft">
-          <p>昨夜排好的：{relay.startTime} 开始。</p>
+          {relay.startTime && <p>昨夜排好的：{relay.startTime} 开始。</p>}
           {relay.ifThen && <p className="mt-1">如果想拖延：{relay.ifThen}</p>}
         </div>
       )}
@@ -97,6 +97,7 @@ export default function MorningRitual({
       )}
       <textarea
         value={mit}
+        maxLength={200}
         onChange={(e) => {
           setMit(e.target.value)
           setTaskId(undefined)

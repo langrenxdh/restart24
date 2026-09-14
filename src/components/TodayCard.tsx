@@ -79,7 +79,11 @@ export default function TodayCard({
         <PrimaryButton onClick={onStartFocus}>开始一轮专注</PrimaryButton>
         {!won && onStartReset && <GhostButton onClick={onStartReset}>午间复位 · 三行卡</GhostButton>}
         <GhostButton onClick={onLog}>{won ? '追加一个成果' : '直接记录交付物'}</GhostButton>
-        {onStartEvening && <GhostButton onClick={onStartEvening}>进入晚间流程</GhostButton>}
+        {onStartEvening && (
+          <GhostButton onClick={onStartEvening}>
+            {day.eveningDone ? '晚间流程 · 补充修改' : '晚间流程 · 排好明天'}
+          </GhostButton>
+        )}
         {!won && onStartEmergency && !lateNight && (
           <button
             type="button"

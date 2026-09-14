@@ -1,4 +1,5 @@
 import type { DayRecord } from '../lib/types'
+import { sanitizeProofUrl } from '../lib/url'
 import { GhostButton, Screen } from './ui'
 
 /** 赢的时刻：庆祝首个交付物；失控日为灰色胜利变体；赢后可继续做事追加成果 */
@@ -24,14 +25,14 @@ export default function WinMoment({
         </h1>
         <div className="mt-8 w-full max-w-xs rounded-2xl bg-paper-deep px-5 py-4">
           <p className="whitespace-pre-wrap text-left text-[15px] leading-relaxed">{first?.text}</p>
-          {first?.proofUrl && (
+          {sanitizeProofUrl(first?.proofUrl) && (
             <a
-              href={first.proofUrl}
+              href={sanitizeProofUrl(first?.proofUrl)}
               target="_blank"
               rel="noreferrer"
               className="mt-3 block truncate text-left text-sm text-ember underline underline-offset-4"
             >
-              {first.proofUrl}
+              {sanitizeProofUrl(first?.proofUrl)}
             </a>
           )}
         </div>

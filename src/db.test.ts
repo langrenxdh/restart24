@@ -165,3 +165,55 @@ describe('任务池事务', () => {
     expect(b.doneAt).toBeNull()
   })
 })
+
+describe('导入校验（importJSON）', () => {
+  it('拒绝非本应用的 JSON', async () => {
+    const { importJSON } = await import('./backup')
+    await expect(importJSON('{"days":[]}')).rejects.toThrow('app 标记')
+    await expect(importJSON('not json')).rejects.toThrow('JSON')
+  })
+
+  it('畸形条目跳过并计数，有效条目逐条归一化', async () => {
+    const { importJSON } = await import('./backup')
+    const { db } = await import('./db')
+    const payload = {
+      app: 'restart24',
+      version: 2,
+      days: [
+        { date: '2026-08-01', deliverable: { text: '旧格式', loggedAt: 1 }, mit: 'm' }, // v2 旧格式 → 归一化
+        { date: 'bad-date' }, // 无效日期 → 跳过
+        { nope: true }, // 缺 date → 跳过
+        {
+          date: '2026-08-02',
+          deliverables: [
+            { text: '带危险链接', loggedAt: 2, proofUrl: 'data:text/html,<script>x</script>' },
+            { text: '', loggedAt: 3 }, // 空 text → 过滤
+          ],
+          focusSessions: [{ result: 'running' }], // 缺 id/startedAt → 过滤
+        },
+      ],
+      rules: [{ id: 'r1', text: '规则' }], // 缺 uses → 补 0
+      tasks: [{ id: 't1', text: '任务' }], // 缺 doneAt → 补 null
+    }
+    const r = await importJSON(JSON.stringify(payload))
+    expect(r.skipped).toBe(2)
+    expect(r.days).toBe(2)
+    expect(r.rules).toBe(1)
+    const d1 = await db.days.get('2026-08-01')
+    expect(d1?.deliverables).toEqual([{ text: '旧格式', loggedAt: 1 }])
+    const d2 = await db.days.get('2026-08-02')
+    expect(d2?.deliverables).toEqual([{ text: '带危险链接', loggedAt: 2, proofUrl: undefined }])
+    expect(d2?.focusSessions).toEqual([])
+    const rule = await db.rules.get('r1')
+    expect(rule?.uses).toBe(0)
+    const task = await db.tasks.get('t1')
+    expect(task?.doneAt).toBeNull()
+  })
+
+  it('全部无效时拒绝导入（不清空现有数据）', async () => {
+    const { importJSON } = await import('./backup')
+    await expect(
+      importJSON(JSON.stringify({ app: 'restart24', days: [{ date: 'x' }] })),
+    ).rejects.toThrow('没有一条有效')
+  })
+})

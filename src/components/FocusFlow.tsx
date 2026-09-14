@@ -3,7 +3,8 @@ import type { DayRecord, FocusSession } from '../lib/types'
 import { finalizeFocusSession, startFocusSession } from '../db'
 import { FOCUS_LENGTHS } from '../config'
 import { DELIVERABLE_TEMPLATES, DOWNGRADE_SUGGESTIONS } from '../copy'
-import { playChime } from '../chime'
+import { playChime, warmChime } from '../chime'
+import { notify } from '../notify'
 import { Chip, GhostButton, PrimaryButton, Screen } from './ui'
 
 type Phase = 'entry' | 'running' | 'ended'
@@ -34,10 +35,23 @@ export default function FocusFlow({
   const dateRef = useRef(day.date)
   const [phase, setPhase] = useState<Phase>(restored ? 'running' : 'entry')
   const [session, setSession] = useState<FocusSession | null>(restored)
+  const sessionRef = useRef<FocusSession | null>(restored)
+  sessionRef.current = session
   const [minutes, setMinutes] = useState<number>(FOCUS_LENGTHS[0])
   const [commitment, setCommitment] = useState(restored?.commitment ?? '')
   const [stuckOpen, setStuckOpen] = useState(false)
-  const [usedStuck, setUsedStuck] = useState(false)
+  // 降级标记跟随会话持久化：刷新后仍正确记为 downgraded（评审 #13）
+  const [usedStuck, setUsedStuckState] = useState(
+    () => !!restored && sessionStorage.getItem(`r24.stuck.${restored.id}`) === '1',
+  )
+  const setUsedStuck = (v: boolean) => {
+    setUsedStuckState(v)
+    const s = sessionRef.current
+    if (s) {
+      if (v) sessionStorage.setItem(`r24.stuck.${s.id}`, '1')
+      else sessionStorage.removeItem(`r24.stuck.${s.id}`)
+    }
+  }
   const [confirmAbandon, setConfirmAbandon] = useState(false)
   const [nowMs, setNowMs] = useState(Date.now())
 
@@ -52,13 +66,16 @@ export default function FocusFlow({
     return () => clearInterval(t)
   }, [phase, session])
 
-  // 到点收尾：钟声 + 振动 + 落库
+  // 到点收尾：钟声 + 振动 + 页面通知（后台时）+ 落库
   useEffect(() => {
     if (phase === 'running' && session && remaining <= 0) {
       void finalize(usedStuck ? 'downgraded' : 'done')
       if (Date.now() - endAt < 60_000) {
         playChime()
         navigator.vibrate?.(200)
+        if (document.visibilityState !== 'visible') {
+          notify('专注轮结束', `${session.minutes} 分钟到了——回来记下这一轮的成果。`)
+        }
       }
       setPhase('ended')
     }
@@ -109,6 +126,7 @@ export default function FocusFlow({
     setNowMs(Date.now())
     setPhase('running')
     onChanged()
+    warmChime() // 手势里预热音频，结束时才响得出来（iOS）
     void requestWakeLock()
   }
 
@@ -127,6 +145,7 @@ export default function FocusFlow({
           value={commitment}
           onChange={(e) => setCommitment(e.target.value)}
           rows={3}
+          maxLength={200}
           placeholder="一个看得见的成果，不是「想一下」"
           className="mt-5 w-full resize-none rounded-2xl border border-ink/15 bg-white/50 px-4 py-3 text-[15px] leading-relaxed outline-none placeholder:text-ink-soft/50 focus:border-ember/50"
         />

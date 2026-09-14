@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import type { DayRecord, Rule, Task } from '../lib/types'
 import { dayStatus, normalizeDay, type DayStatus } from '../lib/domain'
 import { dateLabel, todayKey } from '../lib/dates'
+import { sanitizeProofUrl } from '../lib/url'
 import {
   addTask,
   completeTask,
@@ -136,9 +137,12 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
       return
     }
     try {
-      await importJSON(text)
+      const r = await importJSON(text)
       await load()
       onChanged()
+      window.alert(
+        `导入完成：${r.days} 天记录、${r.rules} 条规则、${r.tasks} 个任务${r.skipped > 0 ? `（跳过 ${r.skipped} 条无效数据）` : ''}`,
+      )
     } catch (err) {
       window.alert('导入失败：' + (err as Error).message)
     }
@@ -168,6 +172,12 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
 
       {tab === 'wall' ? (
         <div className="mt-5">
+          {/* 断链补偿（DESIGN §6.6：永不责备） */}
+          {chain === 0 && days.some((d) => d.deliverables.length > 0 && d.date < todayK) && (
+            <p className="mb-4 rounded-2xl bg-paper-deep px-4 py-3 text-sm leading-relaxed text-ink-soft">
+              链条断了？重新开始也是系统的一部分。今天一个 10 分钟的最小行动，就能开一条新链。
+            </p>
+          )}
           {/* 月份导航 */}
           <div className="flex items-center justify-between">
             <button
@@ -176,6 +186,7 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
                 setCursor(new Date(y, m - 1, 1))
                 setSelected(null)
               }}
+              aria-label="上个月"
               className="rounded-full border border-ink/15 px-3 py-1.5 text-sm text-ink-soft transition active:scale-95"
             >
               ‹
@@ -190,6 +201,7 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
                 setCursor(new Date(y, m + 1, 1))
                 setSelected(null)
               }}
+              aria-label="下个月"
               className="rounded-full border border-ink/15 px-3 py-1.5 text-sm text-ink-soft transition active:scale-95 disabled:opacity-30"
             >
               ›
@@ -214,6 +226,7 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
               const future = k > todayK
               const rec = dayMap.get(k)
               const st = rec ? dayStatus(rec) : 'lost'
+              const stLabel = st === 'won' ? '赢' : st === 'emergencyWon' ? '灰色胜利' : future ? '未来' : '未记录'
               const cls = future
                 ? 'bg-transparent text-ink-soft/30'
                 : st === 'won'
@@ -226,6 +239,8 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
                   key={k}
                   type="button"
                   disabled={future}
+                  aria-label={`${m + 1}月${d}日，${stLabel}`}
+                  title={`${m + 1}月${d}日 · ${stLabel}`}
                   onClick={() => setSelected(selected === k ? null : k)}
                   className={`aspect-square rounded-lg text-xs font-medium transition active:scale-95 ${cls} ${
                     selected === k ? 'ring-2 ring-ember ring-offset-1 ring-offset-paper' : ''
@@ -279,9 +294,9 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
                       <span className="min-w-0">
                         <span className="text-ink-soft">{i === 0 ? '成果：' : '追加：'}</span>
                         {d.text}
-                        {d.proofUrl && (
+                        {sanitizeProofUrl(d.proofUrl) && (
                           <a
-                            href={d.proofUrl}
+                            href={sanitizeProofUrl(d.proofUrl)}
                             target="_blank"
                             rel="noreferrer"
                             className="ml-1 text-ember underline underline-offset-2"
@@ -388,6 +403,7 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
             <input
               value={newRule}
               onChange={(e) => setNewRule(e.target.value)}
+              maxLength={100}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void addRule()
               }}
@@ -426,6 +442,7 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
                       <input
                         value={editText}
                         autoFocus
+                        maxLength={100}
                         onChange={(e) => setEditText(e.target.value)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') void saveTaskEdit(t.id)
@@ -452,11 +469,11 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
                   ) : (
                     <div className="flex items-center justify-between gap-3">
                       <p className="min-w-0 text-[15px] leading-relaxed">{t.text}</p>
-                      <div className="flex shrink-0 items-center gap-3 text-sm">
+                      <div className="flex shrink-0 items-center gap-1 text-sm">
                         <button
                           type="button"
                           onClick={() => completeTaskNow(t.id)}
-                          className="text-moss underline underline-offset-4"
+                          className="-my-2 rounded-lg px-2.5 py-2 text-moss underline underline-offset-4"
                         >
                           完成
                         </button>
@@ -466,7 +483,7 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
                             setEditingId(t.id)
                             setEditText(t.text)
                           }}
-                          className="text-ink-soft underline underline-offset-4"
+                          className="-my-2 rounded-lg px-2.5 py-2 text-ink-soft underline underline-offset-4"
                         >
                           改
                         </button>
@@ -474,7 +491,7 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
                           type="button"
                           onClick={() => deleteTaskNow(t.id)}
                           aria-label="删除任务"
-                          className="text-ink-soft/60"
+                          className="-my-2 rounded-lg px-2.5 py-2 text-ink-soft/80"
                         >
                           删
                         </button>
@@ -513,6 +530,7 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
             <input
               value={newTask}
               onChange={(e) => setNewTask(e.target.value)}
+              maxLength={100}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void addTaskFromInput()
               }}

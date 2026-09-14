@@ -3,6 +3,7 @@ import { computeMode } from './lib/domain'
 import { appendDeliverable, updateDay } from './db'
 import { EVENING_OPEN_HOUR, LATE_NIGHT_HOUR, RESET_WINDOW } from './config'
 import { useToday } from './hooks/useToday'
+import { sanitizeProofUrl } from './lib/url'
 import DeliverableLog from './components/DeliverableLog'
 import EmergencyFlow from './components/EmergencyFlow'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -18,7 +19,7 @@ import WinWall from './components/WinWall'
 type View = 'now' | 'focus' | 'log' | 'evening' | 'reset' | 'emergency' | 'wall'
 
 export default function App() {
-  const { day, chain, relay, now, dayKey, notice, refresh } = useToday()
+  const { day, chain, relay, now, dayKey, notice, initError, retry, refresh } = useToday()
   const [view, setView] = useState<View>('now')
   const [prefill, setPrefill] = useState('')
   // 赢后的两种状态：庆祝屏 / 继续做事（追加成果）
@@ -56,7 +57,7 @@ export default function App() {
     if (!day) return
     await appendDeliverable(day.date, {
       text,
-      proofUrl: proofUrl || undefined,
+      proofUrl: sanitizeProofUrl(proofUrl),
       loggedAt: Date.now(),
     })
     await refresh()
@@ -82,7 +83,20 @@ export default function App() {
   const lateNight = !!day && !won && hour >= LATE_NIGHT_HOUR
 
   let body: React.ReactNode = null
-  if (!day || !mode) {
+  if (initError) {
+    body = (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
+        <p className="text-sm leading-relaxed text-ink-soft">{initError}</p>
+        <button
+          type="button"
+          onClick={() => void retry()}
+          className="rounded-2xl bg-ember px-6 py-3 text-base font-semibold text-paper"
+        >
+          重试
+        </button>
+      </div>
+    )
+  } else if (!day || !mode) {
     body = <div className="flex flex-1 items-center justify-center text-sm text-ink-soft">…</div>
   } else if (view === 'focus') {
     // 运行中的专注轮优先于一切
@@ -109,7 +123,7 @@ export default function App() {
         day={day}
         initial={prefill}
         append={won}
-        onSave={(text, proofUrl) => void saveDeliverable(text, proofUrl)}
+        onSave={(text, proofUrl) => saveDeliverable(text, proofUrl)}
         onCancel={() => setView('now')}
       />
     )
@@ -133,7 +147,7 @@ export default function App() {
             setPrefill('')
             setView('log')
           }}
-          onStartEvening={eveningOpen ? startEvening : undefined}
+          onStartEvening={startEvening}
         />
       )
   } else if (mode === 'morning') {
@@ -162,7 +176,7 @@ export default function App() {
           setPrefill(last?.commitment ?? '')
           setView('log')
         }}
-        onStartEvening={eveningOpen ? startEvening : undefined}
+        onStartEvening={startEvening}
         onStartReset={resetOpen ? () => setView('reset') : undefined}
         onStartEmergency={() => setView('emergency')}
         lateNight={lateNight}

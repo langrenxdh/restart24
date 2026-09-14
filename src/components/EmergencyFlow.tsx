@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import type { DayRecord } from '../lib/types'
 import { appendDeliverable, finalizeFocusSession, startFocusSession, updateDay } from '../db'
 import { DEFAULT_ANCHOR_START, EMERGENCY_MINUTES } from '../config'
-import { playChime } from '../chime'
+import { sanitizeProofUrl } from '../lib/url'
+import { playChime, warmChime } from '../chime'
+import { notify } from '../notify'
 import { Chip, GhostButton, PrimaryButton, Screen } from './ui'
 
 const textareaCls =
@@ -62,11 +64,14 @@ export default function EmergencyFlow({
     onChanged()
   }
 
-  // 到点：钟声 + 收尾 + 进入记录
+  // 到点：钟声 + 收尾 + 进入记录（后台时补页面通知）
   useEffect(() => {
     if (phase === 'timer' && endAt > 0 && remaining <= 0) {
       playChime()
       navigator.vibrate?.(200)
+      if (document.visibilityState !== 'visible') {
+        notify('应急 10 分钟结束', '做到了——回来记下这个灰色胜利。')
+      }
       setResult(task)
       void finishSession()
       setPhase('log')
@@ -89,12 +94,13 @@ export default function EmergencyFlow({
     setNowMs(Date.now())
     setPhase('timer')
     onChanged()
+    warmChime() // 手势里预热音频（iOS）
   }
 
   async function saveDeliverable() {
     await appendDeliverable(day.date, {
       text: result.trim(),
-      proofUrl: proofUrl.trim() || undefined,
+      proofUrl: sanitizeProofUrl(proofUrl),
       loggedAt: Date.now(),
       emergency: true,
     })
@@ -107,7 +113,7 @@ export default function EmergencyFlow({
       anchor: {
         nextStep: nextStep.trim(),
         where: day.anchor?.where ?? '',
-        startTime,
+        startTime: startTime || DEFAULT_ANCHOR_START,
         ifThen: day.anchor?.ifThen,
       },
     })
@@ -130,6 +136,7 @@ export default function EmergencyFlow({
           </p>
         )}
         <textarea
+          maxLength={200}
           value={task}
           onChange={(e) => setTask(e.target.value)}
           rows={3}
@@ -191,13 +198,15 @@ export default function EmergencyFlow({
           value={result}
           onChange={(e) => setResult(e.target.value)}
           rows={4}
+          maxLength={200}
           placeholder="10 分钟做出的可见成果…"
           className={`mt-5 ${textareaCls}`}
         />
         <input
           value={proofUrl}
           onChange={(e) => setProofUrl(e.target.value)}
-          placeholder="成果链接或文件位置（可选）"
+          maxLength={500}
+          placeholder="成果链接（https://…，可选）"
           className={`mt-3 ${inputCls}`}
         />
         <div className="mt-auto pb-4 pt-6">

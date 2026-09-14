@@ -15,6 +15,7 @@ export default function InstallGuide() {
   const [dismissed, setDismissed] = useState(() => localStorage.getItem(LS_KEY) === '1')
   const [granted, setGranted] = useState(() => noticeGranted())
   const supported = noticeSupported()
+  const denied = typeof Notification !== 'undefined' && Notification.permission === 'denied'
 
   if (dismissed || isStandalone()) return null
 
@@ -43,6 +44,10 @@ export default function InstallGuide() {
       <div className="mt-3 flex items-center gap-4 text-sm">
         {granted ? (
           <span className="text-moss">提醒已开启</span>
+        ) : denied ? (
+          <span className="text-ink-soft">
+            通知被浏览器拒绝了——到浏览器设置的站点权限里重新允许，就能收到提醒。
+          </span>
         ) : supported ? (
           <button
             type="button"
@@ -55,7 +60,7 @@ export default function InstallGuide() {
         <button
           type="button"
           onClick={dismiss}
-          className="ml-auto text-ink-soft/70 underline underline-offset-4"
+          className={`${denied ? '' : 'ml-auto '}shrink-0 text-ink-soft/70 underline underline-offset-4`}
         >
           知道了
         </button>

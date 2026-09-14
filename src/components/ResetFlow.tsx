@@ -64,12 +64,13 @@ export default function ResetFlow({
       </div>
 
       <label className="mt-5 block text-sm text-ink-soft">1. 上午完成了什么？</label>
-      <input value={morningDid} onChange={(e) => setMorningDid(e.target.value)} className={`mt-2 ${inputCls}`} />
+      <input value={morningDid} maxLength={100} onChange={(e) => setMorningDid(e.target.value)} className={`mt-2 ${inputCls}`} />
 
       <label className="mt-4 block text-sm text-ink-soft">2. 下午最重要的一件事？</label>
       <input
         value={afternoonOne}
         onChange={(e) => setAfternoonOne(e.target.value)}
+        maxLength={100}
         placeholder="和上午同一方向"
         className={`mt-2 ${inputCls}`}
       />
@@ -99,6 +100,7 @@ export default function ResetFlow({
         value={tomorrowHint}
         onChange={(e) => setTomorrowHint(e.target.value)}
         rows={2}
+        maxLength={100}
         placeholder="粗锚点：下一步 / 文件在哪"
         className={`mt-2 ${textareaCls}`}
       />

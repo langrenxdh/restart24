@@ -14,12 +14,25 @@ export default function DeliverableLog({
   day: DayRecord
   initial: string
   append?: boolean
-  onSave: (text: string, proofUrl: string) => void
+  onSave: (text: string, proofUrl: string) => Promise<void>
   onCancel: () => void
 }) {
   const [text, setText] = useState(initial)
   const [proofUrl, setProofUrl] = useState('')
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function submit() {
+    if (saving || !text.trim()) return
+    setSaving(true) // 防连点：保存中不可重复提交
+    setError(null)
+    try {
+      await onSave(text.trim(), proofUrl.trim())
+    } catch {
+      setError('没存进去——存储可能不可用或已满。数据没有丢失，再试一次。')
+      setSaving(false)
+    }
+  }
 
   return (
     <Screen>
@@ -32,23 +45,20 @@ export default function DeliverableLog({
         value={text}
         onChange={(e) => setText(e.target.value)}
         rows={4}
+        maxLength={200}
         placeholder="今天完成的可见成果…"
         className="mt-5 w-full resize-none rounded-2xl border border-ink/15 bg-white/50 px-4 py-3 text-[15px] leading-relaxed outline-none placeholder:text-ink-soft/50 focus:border-ember/50"
       />
       <input
         value={proofUrl}
         onChange={(e) => setProofUrl(e.target.value)}
-        placeholder="成果链接或文件位置（可选）"
+        maxLength={500}
+        placeholder="成果链接（https://…，可选）"
         className="mt-3 w-full rounded-2xl border border-ink/15 bg-white/50 px-4 py-3 text-[15px] outline-none placeholder:text-ink-soft/50 focus:border-ember/50"
       />
+      {error && <p className="mt-3 text-sm text-ember">{error}</p>}
       <div className="mt-auto space-y-3 pb-4 pt-6">
-        <PrimaryButton
-          disabled={saving || !text.trim()}
-          onClick={() => {
-            setSaving(true) // 防连点：保存中不可重复提交
-            onSave(text.trim(), proofUrl.trim())
-          }}
-        >
+        <PrimaryButton disabled={saving || !text.trim()} onClick={() => void submit()}>
           {saving ? '记录中…' : append ? '记下这个成果' : '记下，今天赢了'}
         </PrimaryButton>
         <GhostButton onClick={onCancel}>返回</GhostButton>
