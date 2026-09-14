@@ -1,4 +1,4 @@
-import type { DayRecord } from '../db'
+import type { DayRecord } from '../lib/types'
 import { GhostButton, Screen } from './ui'
 
 /** 赢的时刻：庆祝首个交付物；失控日为灰色胜利变体；赢后可继续做事追加成果 */

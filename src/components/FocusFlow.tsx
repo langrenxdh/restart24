@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import type { DayRecord, FocusSession } from '../db'
-import { uid, updateDay } from '../db'
+import type { DayRecord, FocusSession } from '../lib/types'
+import { finalizeFocusSession, startFocusSession } from '../db'
+import { FOCUS_LENGTHS } from '../config'
 import { DELIVERABLE_TEMPLATES, DOWNGRADE_SUGGESTIONS } from '../copy'
 import { playChime } from '../chime'
 import { Chip, GhostButton, PrimaryButton, Screen } from './ui'
@@ -29,9 +30,11 @@ export default function FocusFlow({
   onDeliver: (prefill: string) => void
 }) {
   const restored = day.focusSessions.find((s) => s.result === 'running') ?? null
+  // 本轮所属日期：开轮时锁定。跨午夜继续计时/写库都归这天的记录（午夜翻转不杀计时器）。
+  const dateRef = useRef(day.date)
   const [phase, setPhase] = useState<Phase>(restored ? 'running' : 'entry')
   const [session, setSession] = useState<FocusSession | null>(restored)
-  const [minutes, setMinutes] = useState(25)
+  const [minutes, setMinutes] = useState<number>(FOCUS_LENGTHS[0])
   const [commitment, setCommitment] = useState(restored?.commitment ?? '')
   const [stuckOpen, setStuckOpen] = useState(false)
   const [usedStuck, setUsedStuck] = useState(false)
@@ -91,28 +94,20 @@ export default function FocusFlow({
     }
   }, [phase])
 
-  async function finalize(result: FocusSession['result']) {
+  async function finalize(result: Exclude<FocusSession['result'], 'running'>) {
     if (!session) return
     const ended: FocusSession = { ...session, result, endedAt: Date.now() }
     setSession(ended)
-    const others = day.focusSessions.filter((s) => s.id !== session.id)
-    await updateDay(day.date, { focusSessions: [...others, ended] })
+    await finalizeFocusSession(dateRef.current, session.id, result)
     onChanged()
   }
 
   async function start() {
-    const s: FocusSession = {
-      id: uid(),
-      startedAt: Date.now(),
-      minutes,
-      commitment: commitment.trim(),
-      result: 'running',
-    }
+    const s = await startFocusSession(dateRef.current, minutes, commitment)
     setSession(s)
     setUsedStuck(false)
     setNowMs(Date.now())
     setPhase('running')
-    await updateDay(day.date, { focusSessions: [...day.focusSessions, s] })
     onChanged()
     void requestWakeLock()
   }
@@ -143,7 +138,7 @@ export default function FocusFlow({
           ))}
         </div>
         <div className="mt-6 flex gap-3">
-          {[25, 45].map((m) => (
+          {FOCUS_LENGTHS.map((m) => (
             <button
               key={m}
               type="button"

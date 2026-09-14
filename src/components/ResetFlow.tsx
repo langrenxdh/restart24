@@ -1,6 +1,7 @@
-import { useState } from 'react'
-import type { DayRecord } from '../db'
+import { useRef, useState } from 'react'
+import type { DayRecord } from '../lib/types'
 import { updateDay } from '../db'
+import { DEFAULT_ANCHOR_START } from '../config'
 import { GhostButton, PrimaryButton, Screen } from './ui'
 
 const textareaCls =
@@ -21,6 +22,8 @@ export default function ResetFlow({
   onChanged: () => void
   onExit: () => void
 }) {
+  // 复位卡写回打开时那天的记录（跨午夜同理）
+  const dateRef = useRef(day.date)
   const auto =
     day.deliverables[0]?.text ??
     [...day.focusSessions].reverse().find((s) => s.result === 'done' || s.result === 'downgraded')
@@ -32,14 +35,14 @@ export default function ResetFlow({
   const [tomorrowHint, setTomorrowHint] = useState('')
 
   async function save() {
-    await updateDay(day.date, {
+    await updateDay(dateRef.current, {
       resetCard: { morningDid: morningDid.trim(), afternoonOne: afternoonOne.trim(), startAt },
       ...(tomorrowHint.trim()
         ? {
             anchor: {
               nextStep: tomorrowHint.trim(),
               where: day.anchor?.where ?? '',
-              startTime: day.anchor?.startTime ?? '08:00',
+              startTime: day.anchor?.startTime ?? DEFAULT_ANCHOR_START,
               ifThen: day.anchor?.ifThen,
             },
           }

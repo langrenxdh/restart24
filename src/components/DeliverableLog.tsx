@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import type { DayRecord } from '../db'
-import { dateLabel } from '../db'
+import type { DayRecord } from '../lib/types'
+import { dateLabel } from '../lib/dates'
 import { GhostButton, PrimaryButton, Screen } from './ui'
 
 /** 记录交付物：首个锁定胜利，append = 赢后追加成果 */

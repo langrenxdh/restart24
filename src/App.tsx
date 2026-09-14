@@ -1,18 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { computeMode } from './mode'
-import {
-  appendDeliverable,
-  computeChain,
-  db,
-  ensureSchema,
-  getDay,
-  shiftKey,
-  todayKey,
-  updateDay,
-  type Anchor,
-  type DayRecord,
-} from './db'
-import { notify } from './notify'
+import { computeMode } from './lib/domain'
+import { appendDeliverable, updateDay } from './db'
+import { EVENING_OPEN_HOUR, LATE_NIGHT_HOUR, RESET_WINDOW } from './config'
+import { useToday } from './hooks/useToday'
 import DeliverableLog from './components/DeliverableLog'
 import EmergencyFlow from './components/EmergencyFlow'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -26,81 +16,35 @@ import WinMoment from './components/WinMoment'
 import WinWall from './components/WinWall'
 
 type View = 'now' | 'focus' | 'log' | 'evening' | 'reset' | 'emergency' | 'wall'
-type Notice = 'evening' | 'lateNight' | null
-
-/** 晚间流程入口开放时间（DESIGN.md §4.1 默认 20:30，实现取整点 20:00） */
-function eveningWindowOpen(): boolean {
-  return new Date().getHours() >= 20
-}
 
 export default function App() {
-  const [day, setDay] = useState<DayRecord | null>(null)
-  const [chain, setChain] = useState(0)
+  const { day, chain, relay, now, dayKey, notice, refresh } = useToday()
   const [view, setView] = useState<View>('now')
   const [prefill, setPrefill] = useState('')
-  const [relay, setRelay] = useState<Anchor | null>(null)
-  const [notice, setNotice] = useState<Notice>(null)
   // 赢后的两种状态：庆祝屏 / 继续做事（追加成果）
   const [wonView, setWonView] = useState<'celebrate' | 'work'>('celebrate')
 
-  async function refresh(): Promise<DayRecord> {
-    const key = todayKey()
-    const d = await getDay(key)
-    setDay(d)
-    const all = await db.days.toArray()
-    setChain(computeChain(all, key))
-    // 接力：读昨夜的锚点，晨间 MIT 预填
-    const yesterday = await db.days.get(shiftKey(key, -1))
-    setRelay(yesterday?.anchor ?? null)
-    return d
-  }
-
+  // 刷新/重启后：今天的运行中会话回到对应界面（应急轮有 kind 标记）
+  const restoredRef = useRef(false)
   useEffect(() => {
-    void (async () => {
-      await ensureSchema() // 先把旧格式记录迁移掉，再做一切
-      const d = await refresh()
-      // 刷新/重启后恢复运行中的专注轮
-      if (d.focusSessions.some((s) => s.result === 'running')) setView('focus')
-    })()
-  }, [])
-
-  // 午夜翻转：自动进入新的一天
-  useEffect(() => {
-    let current = todayKey()
-    const t = setInterval(() => {
-      if (todayKey() !== current) {
-        current = todayKey()
-        setView('now')
-        setPrefill('')
-        void refresh()
-      }
-    }, 30_000)
-    return () => clearInterval(t)
-  }, [])
-
-  // 应用内时间提醒：20 点晚间流程 / 22 点未交付兜底（页面通知尽力而为，iOS 靠系统闹钟）
-  const noticedRef = useRef<Set<string>>(new Set())
-  useEffect(() => {
-    function check() {
-      if (!day) return
-      const h = new Date().getHours()
-      let next: Exclude<Notice, null> | null = null
-      if (h >= 22 && day.deliverables.length === 0) next = 'lateNight'
-      else if (h >= 20 && !day.eveningDone) next = 'evening'
-      if (next && !noticedRef.current.has(next)) {
-        noticedRef.current.add(next)
-        if (next === 'lateNight') {
-          notify('还有时间做一个 10 分钟版本', '失控日应急 · 做完就是灰色胜利，链条不断。')
-        } else {
-          notify('睡前 45 分钟', '复盘 + 排好明天。现在写下，明早就不用想了。')
-        }
-      }
-      setNotice(next)
-    }
-    check()
-    const t = setInterval(check, 30_000)
-    return () => clearInterval(t)
+    if (!day || restoredRef.current) return
+    restoredRef.current = true
+    const running = day.focusSessions.find((s) => s.result === 'running')
+    if (running) setView(running.kind === 'emergency' ? 'emergency' : 'focus')
   }, [day])
+
+  // 午夜翻转：新的一天。专注/应急界面不强切——组件持有开轮日期，写回原日期；
+  // 其余视图回到新一天的工作台。
+  const lastViewKeyRef = useRef(dayKey)
+  useEffect(() => {
+    if (lastViewKeyRef.current === dayKey) return
+    lastViewKeyRef.current = dayKey
+    if (view !== 'focus' && view !== 'emergency') {
+      setView('now')
+      setPrefill('')
+      setWonView('celebrate')
+    }
+  }, [dayKey, view])
 
   async function completeMorning(mit: string, mitTaskId?: string) {
     if (!day) return
@@ -120,21 +64,22 @@ export default function App() {
     setWonView('celebrate')
   }
 
-  const mode = day ? computeMode(day) : null
+  const mode = day ? computeMode(day, new Date(now)) : null
   const dateShort = new Intl.DateTimeFormat('zh-CN', {
     month: 'long',
     day: 'numeric',
     weekday: 'short',
-  }).format(new Date())
+  }).format(new Date(now))
 
-  const hour = new Date().getHours()
-  const eveningOpen = !!day && !day.eveningDone && eveningWindowOpen()
+  const hour = new Date(now).getHours()
+  const eveningOpen = !!day && !day.eveningDone && hour >= EVENING_OPEN_HOUR
   const startEvening = () => setView('evening')
   const won = !!day && day.deliverables.length > 0
-  // 午间复位窗口（12:00–18:00，还没写过复位卡、还没赢）
-  const resetOpen = !!day && !day.resetCard && !won && hour >= 12 && hour < 18
-  // 22 点还没交付物：最后温柔一击，引导应急模式
-  const lateNight = !!day && !won && hour >= 22
+  // 午间复位窗口（还没写过复位卡、还没赢）
+  const resetOpen =
+    !!day && !day.resetCard && !won && hour >= RESET_WINDOW.start && hour < RESET_WINDOW.end
+  // 深夜还没交付物：最后温柔一击，引导应急模式
+  const lateNight = !!day && !won && hour >= LATE_NIGHT_HOUR
 
   let body: React.ReactNode = null
   if (!day || !mode) {

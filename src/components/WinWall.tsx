@@ -1,19 +1,17 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
-import type { DayRecord, Rule, Task } from '../db'
+import type { DayRecord, Rule, Task } from '../lib/types'
+import { dayStatus, normalizeDay, type DayStatus } from '../lib/domain'
+import { dateLabel, todayKey } from '../lib/dates'
 import {
   addTask,
   completeTask,
   db,
   deleteTask,
-  dateLabel,
-  getDay,
-  normalizeDay,
-  todayKey,
+  removeDeliverable,
+  removeRule,
   uid,
-  updateDay,
   updateTaskText,
 } from '../db'
-import { dayStatus } from '../mode'
 import { exportJSON, exportWeeklyMarkdown, importJSON } from '../backup'
 import { Screen } from './ui'
 
@@ -76,14 +74,12 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
 
   const monthDays = Array.from({ length: daysInMonth }, (_, i) => i + 1)
   const monthKeys = monthDays.map((d) => dateKey(y, m, d))
-  const monthWins = monthKeys.filter((k) => {
+  const statusOf = (k: string): DayStatus => {
     const rec = dayMap.get(k)
-    return !!rec && rec.deliverables.length > 0 && !rec.deliverables[0].emergency
-  }).length
-  const monthEmergency = monthKeys.filter((k) => {
-    const rec = dayMap.get(k)
-    return !!rec && rec.deliverables.length > 0 && rec.deliverables[0].emergency
-  }).length
+    return rec ? dayStatus(rec) : 'lost'
+  }
+  const monthWins = monthKeys.filter((k) => statusOf(k) === 'won').length
+  const monthEmergency = monthKeys.filter((k) => statusOf(k) === 'emergencyWon').length
 
   async function addRule() {
     const text = newRule.trim()
@@ -118,17 +114,16 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
     await load()
   }
 
-  /** 删除某天的某条成果记录（用于清理误录的重复项） */
-  async function removeDeliverable(date: string, index: number) {
+  /** 删除某天的某条成果记录（用于清理误录的重复项；全事务） */
+  async function removeDeliverableAt(date: string, index: number) {
     if (!window.confirm('删除这条成果记录？连胜会按剩余记录重新计算。')) return
-    const rec = await getDay(date)
-    await updateDay(date, { deliverables: rec.deliverables.filter((_, i) => i !== index) })
+    await removeDeliverable(date, index)
     await load()
     onChanged()
   }
 
-  async function removeRule(id: string) {
-    await db.rules.delete(id)
+  async function removeRuleById(id: string) {
+    await removeRule(id)
     setRules((rs) => rs.filter((r) => r.id !== id))
   }
 
@@ -297,7 +292,7 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
                       </span>
                       <button
                         type="button"
-                        onClick={() => void removeDeliverable(selected, i)}
+                        onClick={() => void removeDeliverableAt(selected, i)}
                         aria-label="删除这条成果"
                         className="shrink-0 pt-0.5 text-xs text-ink-soft/60"
                       >
@@ -380,7 +375,7 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
                 </div>
                 <button
                   type="button"
-                  onClick={() => void removeRule(r.id)}
+                  onClick={() => void removeRuleById(r.id)}
                   aria-label="删除规则"
                   className="shrink-0 text-lg leading-none text-ink-soft/60"
                 >

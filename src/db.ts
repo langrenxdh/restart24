@@ -1,62 +1,12 @@
+/**
+ * 持久层：Dexie 实例 + schema 版本链 + 仓储 + 事务化域函数。
+ * 纯领域逻辑（状态机/链条/归一化/日期）在 src/lib/，测试请勿 import 本文件
+ * （import 即建库；需要测迁移时用 fake-indexeddb，见 db.migration.test.ts）。
+ */
 import Dexie, { type Table } from 'dexie'
-
-export interface FocusSession {
-  id: string
-  startedAt: number
-  minutes: number
-  commitment: string
-  result: 'running' | 'done' | 'downgraded' | 'abandoned'
-  endedAt?: number
-}
-
-export interface Deliverable {
-  text: string
-  proofUrl?: string
-  loggedAt: number
-  emergency?: boolean // 失控日应急记录的灰色胜利
-}
-
-export interface ResetCard {
-  morningDid: string
-  afternoonOne: string
-  startAt: string
-}
-
-export interface Anchor {
-  nextStep: string
-  where: string
-  startTime: string
-  ifThen?: string
-}
-
-export interface Rule {
-  id: string
-  text: string
-  uses: number
-  updatedAt: number
-}
-
-/** 任务池：明天的候选清单，不是义务清单。每天只选一个当 MIT。 */
-export interface Task {
-  id: string
-  text: string
-  createdAt: number
-  doneAt: number | null
-}
-
-export interface DayRecord {
-  date: string // YYYY-MM-DD
-  mit: string
-  mitTaskId?: string // MIT 绑定的任务池条目
-  morningDone: boolean
-  focusSessions: FocusSession[]
-  deliverables: Deliverable[] // 首个 = 锁定当日胜利；之后可追加
-  review: { best: string; blocker: string; action: string; keep: string; drop: string } | null
-  anchor: Anchor | null
-  resetCard: ResetCard | null
-  eveningDone?: boolean
-  updatedAt: number
-}
+import { SCHEMA_VERSION, type DayRecord, type Deliverable, type FocusSession, type Rule, type Task } from './lib/types'
+import { closeRunning, closeStaleSessions, normalizeDay } from './lib/domain'
+import { todayKey } from './lib/dates'
 
 class RestartDB extends Dexie {
   days!: Table<DayRecord, string>
@@ -68,6 +18,15 @@ class RestartDB extends Dexie {
     this.version(1).stores({ days: 'date' })
     this.version(2).stores({ days: 'date', rules: 'id' })
     this.version(3).stores({ days: 'date', rules: 'id', tasks: 'id' })
+    // v4（2026-09）：版本化迁移取代散布各处的防御性归一化。
+    // 任何 v≤3 记录在此一次性归一化（deliverable→deliverables、补数组、盖章 schemaV）。
+    this.version(4)
+      .stores({ days: 'date', rules: 'id', tasks: 'id' })
+      .upgrade(async (tx) => {
+        const days = tx.table('days')
+        const records = await days.toArray()
+        await days.bulkPut(records.map(normalizeDay))
+      })
   }
 }
 
@@ -79,42 +38,22 @@ export function uid(): string {
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
-export function todayKey(now = new Date()): string {
-  const y = now.getFullYear()
-  const m = String(now.getMonth() + 1).padStart(2, '0')
-  const d = String(now.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
-}
-
-export function shiftKey(key: string, days: number): string {
-  const [y, m, d] = key.split('-').map(Number)
-  const dt = new Date(y, m - 1, d)
-  dt.setDate(dt.getDate() + days)
-  return todayKey(dt)
-}
-
-/** 归一化：兼容 v2 及更早的旧记录（deliverable 单个 → deliverables 数组） */
-export function normalizeDay(d: DayRecord): DayRecord {
-  if (Array.isArray(d.deliverables)) return d
-  const legacy = (d as DayRecord & { deliverable?: Deliverable | null }).deliverable
-  const normalized = { ...d, deliverables: legacy ? [legacy] : [] }
-  delete (normalized as DayRecord & { deliverable?: unknown }).deliverable
-  return normalized
-}
-
-/** 启动时清扫一遍历史数据，把旧格式记录补上 deliverables 数组 */
+/**
+ * 启动兜底清扫（v≤3 时代的过渡机制，sunset：全量用户跑过 v4 升级链后可移除）。
+ * 只处理 v4 升级链覆盖不到的漏网旧格式（如旧标签页在升级后写回的单条旧记录）。
+ */
 let schemaSwept = false
 export async function ensureSchema(): Promise<void> {
   if (schemaSwept) return
   schemaSwept = true
-  const stale = (await db.days.toArray()).filter((d) => !Array.isArray(d.deliverables))
+  const stale = (await db.days.toArray()).filter((d) => d.schemaV !== SCHEMA_VERSION)
   for (const d of stale) await db.days.put(normalizeDay(d))
 }
 
 export async function getDay(date: string): Promise<DayRecord> {
   const found = await db.days.get(date)
   if (found) {
-    if (Array.isArray(found.deliverables)) return found
+    if (found.schemaV === SCHEMA_VERSION) return found
     const normalized = normalizeDay(found)
     await db.days.put(normalized)
     return normalized
@@ -128,12 +67,18 @@ export async function getDay(date: string): Promise<DayRecord> {
     review: null,
     anchor: null,
     resetCard: null,
+    schemaV: SCHEMA_VERSION,
     updatedAt: Date.now(),
   }
   await db.days.put(fresh)
   return fresh
 }
 
+/**
+ * 标量字段的浅合并更新（review/anchor/resetCard/mit/eveningDone…）。
+ * 注意：不要用它传 focusSessions/deliverables 数组——数组突变必须走下方的事务化域函数，
+ * 否则陈旧快照会整体覆写并发写入（架构评审 P0-2 的教训）。
+ */
 export async function updateDay(date: string, patch: Partial<DayRecord>): Promise<void> {
   await db.transaction('rw', db.days, async () => {
     const day = await getDay(date)
@@ -141,12 +86,59 @@ export async function updateDay(date: string, patch: Partial<DayRecord>): Promis
   })
 }
 
-/** 把仍在 running 的专注轮收尾为 done（记录交付物时调用） */
-export function closeRunning(day: DayRecord): FocusSession[] {
-  return day.focusSessions.map((s) =>
-    s.result === 'running' ? { ...s, result: 'done' as const, endedAt: Date.now() } : s,
-  )
+// ---------- 专注轮（事务化域函数） ----------
+
+/** 开始一轮专注/应急：事务内追加 running 会话，返回带 id/startedAt 的记录供倒计时用 */
+export async function startFocusSession(
+  date: string,
+  minutes: number,
+  commitment: string,
+  kind?: 'emergency',
+): Promise<FocusSession> {
+  const s: FocusSession = {
+    id: uid(),
+    startedAt: Date.now(),
+    minutes,
+    commitment: commitment.trim(),
+    result: 'running',
+    ...(kind ? { kind } : {}),
+  }
+  await db.transaction('rw', db.days, async () => {
+    const day = await getDay(date)
+    await db.days.put({ ...day, focusSessions: [...day.focusSessions, s], updatedAt: Date.now() })
+  })
+  return s
 }
+
+/** 收尾一轮：事务内按 id 定位改状态，不依赖调用方的陈旧快照 */
+export async function finalizeFocusSession(
+  date: string,
+  sessionId: string,
+  result: Exclude<FocusSession['result'], 'running'>,
+): Promise<void> {
+  await db.transaction('rw', db.days, async () => {
+    const day = await getDay(date)
+    const focusSessions = day.focusSessions.map((s) =>
+      s.id === sessionId ? { ...s, result, endedAt: Date.now() } : s,
+    )
+    await db.days.put({ ...day, focusSessions, updatedAt: Date.now() })
+  })
+}
+
+/** 启动清扫：把非今日残留的 running 会话收尾归档（时间走满→done，没走满→abandoned） */
+export async function sweepStaleSessions(now = Date.now()): Promise<void> {
+  const today = todayKey(new Date(now))
+  await db.transaction('rw', db.days, async () => {
+    const days = await db.days.toArray()
+    for (const d of days) {
+      if (!d.focusSessions?.some((s) => s.result === 'running')) continue
+      if (d.date === today) continue
+      await db.days.put({ ...d, focusSessions: closeStaleSessions(d, today, now), updatedAt: now })
+    }
+  })
+}
+
+// ---------- 交付物 ----------
 
 /** 追加一个交付物（全事务：读取-修改-写入原子完成，连点/并发不会产生重复记录） */
 export async function appendDeliverable(date: string, d: Deliverable): Promise<void> {
@@ -164,18 +156,16 @@ export async function appendDeliverable(date: string, d: Deliverable): Promise<v
   if (mitTaskId) await completeTask(mitTaskId)
 }
 
-/** 连续有交付物的天数：从今天往回数；今天还没交付则从昨天数 */
-export function computeChain(days: DayRecord[], today: string): number {
-  const won = new Set(
-    days.map(normalizeDay).filter((d) => d.deliverables.length > 0).map((d) => d.date),
-  )
-  let chain = 0
-  let cursor = won.has(today) ? today : shiftKey(today, -1)
-  while (won.has(cursor)) {
-    chain++
-    cursor = shiftKey(cursor, -1)
-  }
-  return chain
+/** 删除某天的某条成果记录（清理误录重复项；全事务） */
+export async function removeDeliverable(date: string, index: number): Promise<void> {
+  await db.transaction('rw', db.days, async () => {
+    const day = await getDay(date)
+    await db.days.put({
+      ...day,
+      deliverables: day.deliverables.filter((_, i) => i !== index),
+      updatedAt: Date.now(),
+    })
+  })
 }
 
 // ---------- 任务池 ----------
@@ -192,13 +182,17 @@ export async function addTask(text: string): Promise<Task> {
   return t
 }
 
-/** 找同文案的未完成任务，没有才新建（防止重复入池） */
+/** 找同文案的未完成任务，没有才新建（防重复入池；check-then-put 全事务） */
 export async function findOrCreateOpenTask(text: string): Promise<Task> {
   const trimmed = text.trim()
   if (!trimmed) throw new Error('任务内容为空')
-  const existing = await db.tasks.filter((t) => !t.doneAt && t.text === trimmed).first()
-  if (existing) return existing
-  return addTask(trimmed)
+  return db.transaction('rw', db.tasks, async () => {
+    const existing = await db.tasks.filter((t) => !t.doneAt && t.text === trimmed).first()
+    if (existing) return existing
+    const t: Task = { id: uid(), text: trimmed, createdAt: Date.now(), doneAt: null }
+    await db.tasks.put(t)
+    return t
+  })
 }
 
 export async function updateTaskText(id: string, text: string): Promise<void> {
@@ -215,30 +209,28 @@ export async function deleteTask(id: string): Promise<void> {
   await db.tasks.delete(id)
 }
 
+// ---------- 规则库 ----------
+
 /** 最近使用的 If-Then 规则（按使用次数排序） */
 export async function getRecentRules(limit = 5): Promise<Rule[]> {
   const all = await db.rules.toArray()
   return all.sort((a, b) => b.uses - a.uses || b.updatedAt - a.updatedAt).slice(0, limit)
 }
 
-/** 记录一条 If-Then 的使用：已存在则 +1，否则新建 */
+/** 记录一条 If-Then 的使用：已存在则 +1，否则新建（全事务） */
 export async function upsertRuleByText(text: string): Promise<void> {
   const trimmed = text.trim()
   if (!trimmed) return
-  const existing = await db.rules.filter((r) => r.text === trimmed).first()
-  if (existing) {
-    await db.rules.put({ ...existing, uses: existing.uses + 1, updatedAt: Date.now() })
-  } else {
-    await db.rules.put({ id: uid(), text: trimmed, uses: 1, updatedAt: Date.now() })
-  }
+  await db.transaction('rw', db.rules, async () => {
+    const existing = await db.rules.filter((r) => r.text === trimmed).first()
+    if (existing) {
+      await db.rules.put({ ...existing, uses: existing.uses + 1, updatedAt: Date.now() })
+    } else {
+      await db.rules.put({ id: uid(), text: trimmed, uses: 1, updatedAt: Date.now() })
+    }
+  })
 }
 
-export function dateLabel(date: string): string {
-  const [y, m, d] = date.split('-').map(Number)
-  return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    weekday: 'long',
-  }).format(new Date(y, m - 1, d))
+export async function removeRule(id: string): Promise<void> {
+  await db.rules.delete(id)
 }

@@ -1,14 +1,7 @@
-import {
-  db,
-  dateLabel,
-  normalizeDay,
-  shiftKey,
-  todayKey,
-  type DayRecord,
-  type Rule,
-  type Task,
-} from './db'
-import { dayStatus, type DayStatus } from './mode'
+import { db } from './db'
+import { dayStatus, normalizeDay, type DayStatus } from './lib/domain'
+import { dateLabel, shiftKey, todayKey } from './lib/dates'
+import type { DayRecord, Rule, Task } from './lib/types'
 
 function download(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob)

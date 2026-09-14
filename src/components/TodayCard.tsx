@@ -1,4 +1,4 @@
-import type { DayRecord } from '../db'
+import type { DayRecord } from '../lib/types'
 import { GhostButton, PrimaryButton, Screen } from './ui'
 
 /** 深度执行入口：今天的 MIT + 专注/记录交付 + 复位/应急入口。won = 赢后继续模式 */

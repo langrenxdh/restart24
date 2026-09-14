@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import type { DayRecord, Rule } from '../db'
+import { useEffect, useRef, useState } from 'react'
+import type { DayRecord, Rule } from '../lib/types'
 import {
   appendDeliverable,
   completeTask,
@@ -9,6 +9,7 @@ import {
   updateDay,
   upsertRuleByText,
 } from '../db'
+import { DEFAULT_ANCHOR_START } from '../config'
 import { DELIVERABLE_TEMPLATES } from '../copy'
 import { Chip, GhostButton, PrimaryButton, Screen } from './ui'
 
@@ -66,13 +67,15 @@ export default function EveningFlow({
   onChanged: () => void
   onExit: () => void
 }) {
+  // 本流程复盘的是打开时那一天：跨午夜继续写也归那天的记录
+  const dateRef = useRef(day.date)
   const [step, setStep] = useState(0)
   const [review, setReview] = useState<Record<ReviewKey, string>>(
     day.review ?? { best: '', blocker: '', action: '', keep: '', drop: '' },
   )
   const [deliverableText, setDeliverableText] = useState('')
   const [proofUrl, setProofUrl] = useState('')
-  const [startTime, setStartTime] = useState(day.anchor?.startTime ?? '08:00')
+  const [startTime, setStartTime] = useState(day.anchor?.startTime ?? DEFAULT_ANCHOR_START)
   const [nextStep, setNextStep] = useState(day.anchor?.nextStep ?? '')
   const [where, setWhere] = useState(day.anchor?.where ?? '')
   const [ifThen, setIfThen] = useState(day.anchor?.ifThen ?? '')
@@ -85,7 +88,7 @@ export default function EveningFlow({
   }, [])
 
   function nextFromReview() {
-    void updateDay(day.date, { review: { ...review } })
+    void updateDay(dateRef.current, { review: { ...review } })
     setStep(
       step === STEP.REVIEW_LAST ? (day.mit.trim() ? STEP.TRIAGE : STEP.DELIVERABLE) : step + 1,
     )
@@ -95,7 +98,7 @@ export default function EveningFlow({
   async function ensureTask(): Promise<void> {
     if (day.mitTaskId) return
     const t = await findOrCreateOpenTask(day.mit)
-    await updateDay(day.date, { mitTaskId: t.id })
+    await updateDay(dateRef.current, { mitTaskId: t.id })
     onChanged()
   }
 
@@ -121,7 +124,7 @@ export default function EveningFlow({
   }
 
   async function persistDeliverable() {
-    await appendDeliverable(day.date, {
+    await appendDeliverable(dateRef.current, {
       text: deliverableText.trim(),
       proofUrl: proofUrl.trim() || undefined,
       loggedAt: Date.now(),
@@ -131,7 +134,7 @@ export default function EveningFlow({
   }
 
   async function finish() {
-    await updateDay(day.date, {
+    await updateDay(dateRef.current, {
       anchor: { nextStep: nextStep.trim(), where: where.trim(), startTime, ifThen: ifThen.trim() || undefined },
       eveningDone: true,
     })

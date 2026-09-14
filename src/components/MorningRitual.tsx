@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { Anchor, Task } from '../db'
+import type { Anchor, Task } from '../lib/types'
 import { getOpenTasks } from '../db'
 import { DELIVERABLE_TEMPLATES } from '../copy'
 import { Chip, PrimaryButton, Screen } from './ui'

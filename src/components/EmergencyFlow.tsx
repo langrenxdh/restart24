@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
-import type { DayRecord, FocusSession } from '../db'
-import { appendDeliverable, uid, updateDay } from '../db'
+import { useEffect, useRef, useState } from 'react'
+import type { DayRecord } from '../lib/types'
+import { appendDeliverable, finalizeFocusSession, startFocusSession, updateDay } from '../db'
+import { DEFAULT_ANCHOR_START, EMERGENCY_MINUTES } from '../config'
 import { playChime } from '../chime'
 import { Chip, GhostButton, PrimaryButton, Screen } from './ui'
 
@@ -32,14 +33,18 @@ export default function EmergencyFlow({
   onChanged: () => void
   onExit: () => void
 }) {
-  const [phase, setPhase] = useState<Phase>('compress')
-  const [task, setTask] = useState('')
+  // 恢复：今天有进行中的应急轮（退出过/刷新过）→ 直接回到计时相位，接着算
+  const restored = day.focusSessions.find((s) => s.result === 'running' && s.kind === 'emergency')
+  // 本轮所属日期：开轮时锁定，跨午夜写回原记录
+  const dateRef = useRef(day.date)
+  const [phase, setPhase] = useState<Phase>(restored ? 'timer' : 'compress')
+  const [task, setTask] = useState(restored?.commitment ?? '')
   const [result, setResult] = useState('')
   const [proofUrl, setProofUrl] = useState('')
   const [nextStep, setNextStep] = useState('')
-  const [startTime, setStartTime] = useState(day.anchor?.startTime ?? '08:00')
-  const [sessionId, setSessionId] = useState<string | null>(null)
-  const [endAt, setEndAt] = useState(0)
+  const [startTime, setStartTime] = useState(day.anchor?.startTime ?? DEFAULT_ANCHOR_START)
+  const [sessionId, setSessionId] = useState<string | null>(restored?.id ?? null)
+  const [endAt, setEndAt] = useState(restored ? restored.startedAt + EMERGENCY_MINUTES * 60_000 : 0)
   const [nowMs, setNowMs] = useState(Date.now())
 
   const remaining = Math.max(0, endAt - nowMs)
@@ -51,17 +56,9 @@ export default function EmergencyFlow({
     return () => clearInterval(t)
   }, [phase])
 
-  function settledSessions(): FocusSession[] {
-    return day.focusSessions.map((s) =>
-      s.result === 'running' || s.id === sessionId
-        ? { ...s, result: 'done' as const, endedAt: Date.now() }
-        : s,
-    )
-  }
-
   async function finishSession() {
     if (!sessionId) return
-    await updateDay(day.date, { focusSessions: settledSessions() })
+    await finalizeFocusSession(dateRef.current, sessionId, 'done')
     onChanged()
   }
 
@@ -79,25 +76,18 @@ export default function EmergencyFlow({
 
   // 标签页标题同步
   useEffect(() => {
-    document.title = phase === 'timer' ? `${fmt(remaining)} · 应急 10 分钟` : '重启24'
+    document.title = phase === 'timer' ? `${fmt(remaining)} · 应急 ${EMERGENCY_MINUTES} 分钟` : '重启24'
     return () => {
       document.title = '重启24'
     }
   }, [phase, remaining])
 
   async function startTimer() {
-    const s: FocusSession = {
-      id: uid(),
-      startedAt: Date.now(),
-      minutes: 10,
-      commitment: task.trim(),
-      result: 'running',
-    }
+    const s = await startFocusSession(dateRef.current, EMERGENCY_MINUTES, task, 'emergency')
     setSessionId(s.id)
-    setEndAt(s.startedAt + 10 * 60_000)
+    setEndAt(s.startedAt + EMERGENCY_MINUTES * 60_000)
     setNowMs(Date.now())
     setPhase('timer')
-    await updateDay(day.date, { focusSessions: [...day.focusSessions, s] })
     onChanged()
   }
 
@@ -113,7 +103,7 @@ export default function EmergencyFlow({
   }
 
   async function saveAnchor() {
-    await updateDay(day.date, {
+    await updateDay(dateRef.current, {
       anchor: {
         nextStep: nextStep.trim(),
         where: day.anchor?.where ?? '',
