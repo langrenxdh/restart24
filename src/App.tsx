@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { computeMode } from './mode'
 import {
-  closeRunning,
+  appendDeliverable,
   computeChain,
   db,
   getDay,
@@ -38,6 +38,8 @@ export default function App() {
   const [prefill, setPrefill] = useState('')
   const [relay, setRelay] = useState<Anchor | null>(null)
   const [notice, setNotice] = useState<Notice>(null)
+  // 赢后的两种状态：庆祝屏 / 继续做事（追加成果）
+  const [wonView, setWonView] = useState<'celebrate' | 'work'>('celebrate')
 
   async function refresh(): Promise<DayRecord> {
     const key = todayKey()
@@ -80,7 +82,7 @@ export default function App() {
       if (!day) return
       const h = new Date().getHours()
       let next: Exclude<Notice, null> | null = null
-      if (h >= 22 && !day.deliverable) next = 'lateNight'
+      if (h >= 22 && day.deliverables.length === 0) next = 'lateNight'
       else if (h >= 20 && !day.eveningDone) next = 'evening'
       if (next && !noticedRef.current.has(next)) {
         noticedRef.current.add(next)
@@ -97,20 +99,22 @@ export default function App() {
     return () => clearInterval(t)
   }, [day])
 
-  async function completeMorning(mit: string) {
+  async function completeMorning(mit: string, mitTaskId?: string) {
     if (!day) return
-    await updateDay(day.date, { mit, morningDone: true })
+    await updateDay(day.date, { mit, mitTaskId, morningDone: true })
     await refresh()
   }
 
   async function saveDeliverable(text: string, proofUrl: string) {
     if (!day) return
-    await updateDay(day.date, {
-      deliverable: { text, proofUrl: proofUrl || undefined, loggedAt: Date.now() },
-      focusSessions: closeRunning(day),
+    await appendDeliverable(day, {
+      text,
+      proofUrl: proofUrl || undefined,
+      loggedAt: Date.now(),
     })
     await refresh()
     setView('now')
+    setWonView('celebrate')
   }
 
   const mode = day ? computeMode(day) : null
@@ -123,10 +127,11 @@ export default function App() {
   const hour = new Date().getHours()
   const eveningOpen = !!day && !day.eveningDone && eveningWindowOpen()
   const startEvening = () => setView('evening')
-  // 午间复位窗口（12:00–18:00，还没写过复位卡）
-  const resetOpen = !!day && !day.resetCard && hour >= 12 && hour < 18
+  const won = !!day && day.deliverables.length > 0
+  // 午间复位窗口（12:00–18:00，还没写过复位卡、还没赢）
+  const resetOpen = !!day && !day.resetCard && !won && hour >= 12 && hour < 18
   // 22 点还没交付物：最后温柔一击，引导应急模式
-  const lateNight = !!day && !day.deliverable && hour >= 22
+  const lateNight = !!day && !won && hour >= 22
 
   let body: React.ReactNode = null
   if (!day || !mode) {
@@ -155,6 +160,7 @@ export default function App() {
       <DeliverableLog
         day={day}
         initial={prefill}
+        append={won}
         onSave={(text, proofUrl) => void saveDeliverable(text, proofUrl)}
         onCancel={() => setView('now')}
       />
@@ -162,11 +168,42 @@ export default function App() {
   } else if (view === 'wall') {
     body = <WinWall chain={chain} onChanged={() => void refresh()} />
   } else if (mode === 'won') {
-    body = <WinMoment day={day} chain={chain} onStartEvening={eveningOpen ? startEvening : undefined} />
+    body =
+      wonView === 'celebrate' ? (
+        <WinMoment
+          day={day}
+          chain={chain}
+          onContinue={() => setWonView('work')}
+          onStartEvening={eveningOpen ? startEvening : undefined}
+        />
+      ) : (
+        <TodayCard
+          day={day}
+          won
+          onStartFocus={() => setView('focus')}
+          onLog={() => {
+            setPrefill('')
+            setView('log')
+          }}
+          onStartEvening={eveningOpen ? startEvening : undefined}
+        />
+      )
   } else if (mode === 'morning') {
-    body = <MorningRitual compressed={false} relay={relay} onComplete={(mit) => void completeMorning(mit)} />
+    body = (
+      <MorningRitual
+        compressed={false}
+        relay={relay}
+        onComplete={(mit, taskId) => void completeMorning(mit, taskId)}
+      />
+    )
   } else if (mode === 'quick-start') {
-    body = <MorningRitual compressed relay={relay} onComplete={(mit) => void completeMorning(mit)} />
+    body = (
+      <MorningRitual
+        compressed
+        relay={relay}
+        onComplete={(mit, taskId) => void completeMorning(mit, taskId)}
+      />
+    )
   } else {
     const last = [...day.focusSessions].reverse().find((s) => s.result !== 'abandoned')
     body = (

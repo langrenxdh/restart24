@@ -1,9 +1,10 @@
 import type { DayRecord } from '../db'
 import { GhostButton, PrimaryButton, Screen } from './ui'
 
-/** 深度执行入口：今天的 MIT + 专注/记录交付 + 复位/应急入口 */
+/** 深度执行入口：今天的 MIT + 专注/记录交付 + 复位/应急入口。won = 赢后继续模式 */
 export default function TodayCard({
   day,
+  won = false,
   onStartFocus,
   onLog,
   onStartEvening,
@@ -12,6 +13,7 @@ export default function TodayCard({
   lateNight,
 }: {
   day: DayRecord
+  won?: boolean
   onStartFocus: () => void
   onLog: () => void
   onStartEvening?: () => void
@@ -24,12 +26,27 @@ export default function TodayCard({
 
   return (
     <Screen>
+      {won && (
+        <p className="text-sm text-moss">
+          今天已赢 · {day.deliverables.length} 个成果
+        </p>
+      )}
       <p className="text-sm tracking-wide text-ink-soft">唯一的 MIT</p>
       <h1 className="mt-4 font-display text-[2rem] leading-snug">{day.mit}</h1>
       {finished.length > 0 && (
         <p className="mt-4 text-sm text-ink-soft">
           今天已完成 {finished.length} 轮专注 · {minutes} 分钟
         </p>
+      )}
+
+      {won && day.deliverables.length > 0 && (
+        <div className="mt-4 space-y-1.5 rounded-2xl bg-paper-deep px-4 py-3 text-sm leading-relaxed">
+          {day.deliverables.map((d, i) => (
+            <p key={i} className="truncate">
+              <span className="text-ink-soft">{i === 0 ? '🏆' : '＋'}</span> {d.text}
+            </p>
+          ))}
+        </div>
       )}
 
       {day.resetCard && (
@@ -41,7 +58,7 @@ export default function TodayCard({
         </div>
       )}
 
-      {lateNight && onStartEmergency ? (
+      {!won && lateNight && onStartEmergency ? (
         <button
           type="button"
           onClick={onStartEmergency}
@@ -54,16 +71,16 @@ export default function TodayCard({
         </button>
       ) : (
         <p className="mt-6 max-w-xs text-sm leading-relaxed text-ink-soft">
-          先把东西做出来，再追求完美。做出来是起点，做好是终点。
+          {won ? '胜利已锁定，现在做的都是复利。' : '先把东西做出来，再追求完美。做出来是起点，做好是终点。'}
         </p>
       )}
 
       <div className="mt-auto space-y-3 pb-4">
         <PrimaryButton onClick={onStartFocus}>开始一轮专注</PrimaryButton>
-        {onStartReset && <GhostButton onClick={onStartReset}>午间复位 · 三行卡</GhostButton>}
-        <GhostButton onClick={onLog}>直接记录交付物</GhostButton>
+        {!won && onStartReset && <GhostButton onClick={onStartReset}>午间复位 · 三行卡</GhostButton>}
+        <GhostButton onClick={onLog}>{won ? '追加一个成果' : '直接记录交付物'}</GhostButton>
         {onStartEvening && <GhostButton onClick={onStartEvening}>进入晚间流程</GhostButton>}
-        {onStartEmergency && !lateNight && (
+        {!won && onStartEmergency && !lateNight && (
           <button
             type="button"
             onClick={onStartEmergency}

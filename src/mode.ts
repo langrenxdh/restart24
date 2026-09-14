@@ -12,15 +12,15 @@ import type { DayRecord } from './db'
 export type Mode = 'morning' | 'quick-start' | 'focus' | 'won'
 
 export function computeMode(day: DayRecord, now = new Date()): Mode {
-  if (day.deliverable) return 'won'
+  if (day.deliverables.length > 0) return 'won'
   if (day.mit.trim()) return 'focus'
   return now.getHours() < 15 ? 'morning' : 'quick-start'
 }
 
-/** 当日状态：emergencyWon = 失控日的灰色胜利（链条不断） */
+/** 当日状态：emergencyWon = 失控日的灰色胜利（链条不断），以首个交付物为准 */
 export type DayStatus = 'won' | 'emergencyWon' | 'lost'
 
 export function dayStatus(day: DayRecord): DayStatus {
-  if (!day.deliverable) return 'lost'
-  return day.deliverable.emergency ? 'emergencyWon' : 'won'
+  if (day.deliverables.length === 0) return 'lost'
+  return day.deliverables[0].emergency ? 'emergencyWon' : 'won'
 }

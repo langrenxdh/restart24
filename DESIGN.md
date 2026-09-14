@@ -54,13 +54,14 @@
 ```ts
 Day {
   date: string              // YYYY-MM-DD
-  mit: string               // 今日唯一 MIT（只能一个）
-  deliverable: {            // 今日可见交付物
+  mit: string               // 今日唯一 MIT（只能一个，可绑定池任务 mitTaskId）
+  deliverables: [{          // 今日可见交付物（首个=锁定胜利，之后为追加成果）
     text: string
     proofUrl?: string       // 可选：截图/链接/文件路径
     loggedAt: timestamp
-  } | null
-  status: 'won' | 'emergencyWon' | 'lost'   // lost = 无记录（派生）
+    emergency?: boolean     // 失控日应急记录的灰色胜利
+  }]
+  status: 'won' | 'emergencyWon' | 'lost'   // lost = 无记录（派生，以首个交付物为准）
   morningDone: boolean
   resetCard: { morningDid, afternoonOne, startAt } | null
   focusSessions: [{
@@ -74,6 +75,7 @@ Day {
 }
 
 Rule { id, text, uses, updatedAt }   // If-Then 规则库（一句式，降低夜间填写摩擦）
+Task { id, text, createdAt, doneAt } // 任务池：明天的候选，不是义务清单
 Settings { timeWindows, soundOn, ... }
 Chain                               // 不落库，由 Days 派生计算
 ```
@@ -128,9 +130,20 @@ Chain                               // 不落库，由 Days 派生计算
 ### 6.6 🏆 成果墙与链条
 
 - 月历热力图：绿 = won，灰 = emergencyWon，空 = lost。
-- 点开某天：当天交付物、MIT、专注轮次、复盘摘要。
+- 点开某天：当天全部交付物、MIT、专注轮次、复盘摘要。
 - 链条数 = 连续非空天数；断链文案：「重新开始也是系统的一部分」。
 - **赢的门槛刻意压低**：记录了交付物（含应急版）即 won；复盘 5 问是加分项，不是及格线。
+
+### 6.7 ➕ 赢后继续与任务池（多任务支持）
+
+**赢 ≠ 收工。** 首个交付物锁定当日胜利后，庆祝屏提供「继续做事」入口，回到工作台可再开专注轮、追加任意多个成果（追加项同样入档，出现在成果墙与周报里）。赢了之后做的都是复利。
+
+**任务池 = 明天的候选清单，不是义务清单。** 这是对"20 个任务只完成 3 个"失控感的防御：
+
+- 晨间仪式：MIT 可从池中选一个（绑定 taskId），也可现场写——二选一，仍只有一个 MIT。
+- 记录交付物时，当天绑定的池任务自动标记完成。
+- 晚间流程新增 **MIT 处置步**（有 MIT 时）：完成了 / 没完成 → **顺延为明天的任务**（预填锚点）/ **放回任务池** / **放弃**。不让未完成任务无声烂掉。
+- 池子管理在成果墙第三个页签：入池、完成、删除。
 
 ## 7. If-Then 规则库
 
@@ -169,7 +182,8 @@ Chain                               // 不落库，由 Days 派生计算
 - ❌ 社交动态、好友排行（对比是失控感的来源）
 - ❌ 无限统计图表、复杂项目管理（Notion 化 = 死亡）
 - ❌ 主题/字体/外观折腾（工具成瘾温床）
-- ❌ 一天多个 MIT（系统明确：只许一个）
+- ❌ 一天多个 MIT（MIT 永远只有一个；赢后追加成果不受限）
+- ❌ 任务池变成全功能 todo 管理：不做截止日期、优先级、项目层级——池子只回答"明天选哪个"
 - ❌ 白噪音、专注森林等装饰性功能
 - ❌ 番茄钟数据焦虑（专注轮数只是记录，不设 KPI）
 

@@ -1,6 +1,14 @@
 import { useEffect, useState } from 'react'
 import type { DayRecord, Rule } from '../db'
-import { closeRunning, getRecentRules, updateDay, upsertRuleByText } from '../db'
+import {
+  addTask,
+  appendDeliverable,
+  completeTask,
+  deleteTask,
+  getRecentRules,
+  updateDay,
+  upsertRuleByText,
+} from '../db'
 import { DELIVERABLE_TEMPLATES } from '../copy'
 import { Chip, GhostButton, PrimaryButton, Screen } from './ui'
 
@@ -34,7 +42,15 @@ const CHECKLIST = [
   '短视频已限制或卸载',
 ]
 
-const STEP = { REVIEW_LAST: 4, DELIVERABLE: 5, TOMORROW: 6, CHECKLIST: 7, IF_THEN: 8, DONE: 9 }
+const STEP = {
+  REVIEW_LAST: 4,
+  TRIAGE: 5,
+  DELIVERABLE: 6,
+  TOMORROW: 7,
+  CHECKLIST: 8,
+  IF_THEN: 9,
+  DONE: 10,
+}
 
 /**
  * 晚间复合流程：复盘 5 问 → 记录今日交付物 → 写明日第一项任务（锚点）
@@ -62,6 +78,7 @@ export default function EveningFlow({
   const [ifThen, setIfThen] = useState(day.anchor?.ifThen ?? '')
   const [checks, setChecks] = useState<boolean[]>(() => CHECKLIST.map(() => false))
   const [recentRules, setRecentRules] = useState<Rule[]>([])
+  const [triage, setTriage] = useState<'ask' | 'incomplete'>('ask')
 
   useEffect(() => {
     void getRecentRules(5).then(setRecentRules)
@@ -69,17 +86,45 @@ export default function EveningFlow({
 
   function nextFromReview() {
     void updateDay(day.date, { review: { ...review } })
-    setStep(step === STEP.REVIEW_LAST ? STEP.DELIVERABLE : step + 1)
+    setStep(
+      step === STEP.REVIEW_LAST ? (day.mit.trim() ? STEP.TRIAGE : STEP.DELIVERABLE) : step + 1,
+    )
+  }
+
+  // MIT 若不在任务池里，为其补建一条（顺延/回池才有处可去）
+  async function ensureTask(): Promise<void> {
+    if (day.mitTaskId) return
+    const t = await addTask(day.mit)
+    await updateDay(day.date, { mitTaskId: t.id })
+    onChanged()
+  }
+
+  async function triageDone() {
+    if (day.mitTaskId) await completeTask(day.mitTaskId)
+    setStep(STEP.DELIVERABLE)
+  }
+
+  async function triageCarry() {
+    await ensureTask()
+    setNextStep(day.mit) // 顺延：预填明天的第一项任务
+    setStep(STEP.DELIVERABLE)
+  }
+
+  async function triagePool() {
+    await ensureTask()
+    setStep(STEP.DELIVERABLE)
+  }
+
+  async function triageDrop() {
+    if (day.mitTaskId) await deleteTask(day.mitTaskId)
+    setStep(STEP.DELIVERABLE)
   }
 
   async function persistDeliverable() {
-    await updateDay(day.date, {
-      deliverable: {
-        text: deliverableText.trim(),
-        proofUrl: proofUrl.trim() || undefined,
-        loggedAt: Date.now(),
-      },
-      focusSessions: closeRunning(day),
+    await appendDeliverable(day, {
+      text: deliverableText.trim(),
+      proofUrl: proofUrl.trim() || undefined,
+      loggedAt: Date.now(),
     })
     onChanged()
     setStep(STEP.TOMORROW)
@@ -120,16 +165,55 @@ export default function EveningFlow({
     )
   }
 
+  // ---------- MIT 处置：完成 / 顺延 / 回池 / 放弃 ----------
+  if (step === STEP.TRIAGE) {
+    return (
+      <Screen>
+        <p className="text-sm text-ink-soft">今天的 MIT</p>
+        <div className="mt-4 rounded-2xl bg-paper-deep px-4 py-3 text-[15px] leading-relaxed">{day.mit}</div>
+        {triage === 'ask' ? (
+          <>
+            <h1 className="mt-6 font-display text-3xl leading-snug">完成了吗？</h1>
+            <p className="mt-3 text-[15px] leading-relaxed text-ink-soft">如实回答。这是数据，不是审判。</p>
+            <div className="mt-auto space-y-3 pb-4 pt-6">
+              <PrimaryButton onClick={() => void triageDone()}>完成了</PrimaryButton>
+              <GhostButton onClick={() => setTriage('incomplete')}>还没完成</GhostButton>
+            </div>
+          </>
+        ) : (
+          <>
+            <h1 className="mt-6 font-display text-3xl leading-snug">没完成也正常。</h1>
+            <p className="mt-3 text-[15px] leading-relaxed text-ink-soft">
+              一件事的进度不等于一天的失败。把它交给明天，或者放回池子——别让它无声烂掉。
+            </p>
+            <div className="mt-auto space-y-3 pb-4 pt-6">
+              <PrimaryButton onClick={() => void triageCarry()}>顺延为明天的任务</PrimaryButton>
+              <GhostButton onClick={() => void triagePool()}>放回任务池</GhostButton>
+              <GhostButton onClick={() => void triageDrop()}>放弃这个任务</GhostButton>
+            </div>
+          </>
+        )}
+      </Screen>
+    )
+  }
+
   // ---------- 记录今日交付物 ----------
   if (step === STEP.DELIVERABLE) {
-    if (day.deliverable) {
+    if (day.deliverables.length > 0) {
       return (
         <Screen>
           <p className="text-sm text-ink-soft">今日成果</p>
           <h1 className="mt-6 font-display text-4xl leading-snug">今天已经赢过。</h1>
-          <div className="mt-6 rounded-2xl bg-paper-deep px-5 py-4">
-            <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{day.deliverable.text}</p>
+          <div className="mt-6 space-y-2">
+            {day.deliverables.map((d, i) => (
+              <div key={i} className="rounded-2xl bg-paper-deep px-5 py-3 text-[15px] leading-relaxed">
+                {d.text}
+              </div>
+            ))}
           </div>
+          <p className="mt-4 text-sm leading-relaxed text-ink-soft">
+            还想追加？走完晚间流程，回主页随时可以补。
+          </p>
           <div className="mt-auto pb-4 pt-6">
             <PrimaryButton onClick={() => setStep(STEP.TOMORROW)}>下一题：排明天</PrimaryButton>
           </div>

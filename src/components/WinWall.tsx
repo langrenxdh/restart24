@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
-import type { DayRecord, Rule } from '../db'
-import { db, dateLabel, todayKey, uid } from '../db'
+import type { DayRecord, Rule, Task } from '../db'
+import { addTask, completeTask, db, deleteTask, dateLabel, todayKey, uid } from '../db'
 import { dayStatus } from '../mode'
 import { exportJSON, exportWeeklyMarkdown, importJSON } from '../backup'
 import { Screen } from './ui'
@@ -25,17 +25,25 @@ function dateKey(y: number, m: number, d: number): string {
 export default function WinWall({ chain, onChanged }: { chain: number; onChanged: () => void }) {
   const [days, setDays] = useState<DayRecord[]>([])
   const [rules, setRules] = useState<Rule[]>([])
-  const [tab, setTab] = useState<'wall' | 'rules'>('wall')
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [tab, setTab] = useState<'wall' | 'rules' | 'tasks'>('wall')
   const [cursor, setCursor] = useState(() => {
     const n = new Date()
     return new Date(n.getFullYear(), n.getMonth(), 1)
   })
   const [selected, setSelected] = useState<string | null>(null)
   const [newRule, setNewRule] = useState('')
+  const [newTask, setNewTask] = useState('')
 
   async function load(): Promise<void> {
     setDays(await db.days.toArray())
     setRules((await db.rules.toArray()).sort((a, b) => b.uses - a.uses || b.updatedAt - a.updatedAt))
+    setTasks(
+      (await db.tasks.toArray()).sort((a, b) => {
+        if (!!a.doneAt !== !!b.doneAt) return a.doneAt ? 1 : -1
+        return (b.doneAt ?? b.createdAt) - (a.doneAt ?? a.createdAt)
+      }),
+    )
   }
 
   useEffect(() => {
@@ -56,15 +64,26 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
   const monthKeys = monthDays.map((d) => dateKey(y, m, d))
   const monthWins = monthKeys.filter((k) => {
     const rec = dayMap.get(k)
-    return !!rec?.deliverable && !rec.deliverable.emergency
+    return !!rec && rec.deliverables.length > 0 && !rec.deliverables[0].emergency
   }).length
-  const monthEmergency = monthKeys.filter((k) => !!dayMap.get(k)?.deliverable?.emergency).length
+  const monthEmergency = monthKeys.filter((k) => {
+    const rec = dayMap.get(k)
+    return !!rec && rec.deliverables.length > 0 && rec.deliverables[0].emergency
+  }).length
 
   async function addRule() {
     const text = newRule.trim()
     if (!text) return
     await db.rules.put({ id: uid(), text, uses: 0, updatedAt: Date.now() })
     setNewRule('')
+    await load()
+  }
+
+  async function addTaskFromInput() {
+    const text = newTask.trim()
+    if (!text) return
+    await addTask(text)
+    setNewTask('')
     await load()
   }
 
@@ -97,7 +116,7 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
     <Screen>
       {/* 页签 */}
       <div className="flex gap-2">
-        {(['wall', 'rules'] as const).map((t) => (
+        {(['wall', 'rules', 'tasks'] as const).map((t) => (
           <button
             key={t}
             type="button"
@@ -106,7 +125,7 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
               tab === t ? 'bg-ember text-paper' : 'border border-ink/15 text-ink-soft'
             }`}
           >
-            {t === 'wall' ? '成果墙' : `规则库${rules.length > 0 ? ` · ${rules.length}` : ''}`}
+            {t === 'wall' ? '成果墙' : t === 'rules' ? `规则库${rules.length > 0 ? ` · ${rules.length}` : ''}` : `任务池${tasks.filter((x) => !x.doneAt).length > 0 ? ` · ${tasks.filter((x) => !x.doneAt).length}` : ''}`}
           </button>
         ))}
         <span className="ml-auto self-center text-xs text-ink-soft">当前连胜 {chain} 天</span>
@@ -220,13 +239,13 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
                       {selectedRec.mit}
                     </p>
                   )}
-                  {selectedRec.deliverable && (
-                    <p>
-                      <span className="text-ink-soft">成果：</span>
-                      {selectedRec.deliverable.text}
-                      {selectedRec.deliverable.proofUrl && (
+                  {selectedRec.deliverables.map((d, i) => (
+                    <p key={i}>
+                      <span className="text-ink-soft">{i === 0 ? '成果：' : '追加：'}</span>
+                      {d.text}
+                      {d.proofUrl && (
                         <a
-                          href={selectedRec.deliverable.proofUrl}
+                          href={d.proofUrl}
                           target="_blank"
                           rel="noreferrer"
                           className="ml-1 text-ember underline underline-offset-2"
@@ -235,7 +254,7 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
                         </a>
                       )}
                     </p>
-                  )}
+                  ))}
                   {(() => {
                     const done = selectedRec.focusSessions.filter(
                       (s) => s.result === 'done' || s.result === 'downgraded',
@@ -290,7 +309,7 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
             </label>
           </div>
         </div>
-      ) : (
+      ) : tab === 'rules' ? (
         /* 规则库 */
         <div className="mt-5">
           <p className="text-sm leading-relaxed text-ink-soft">
@@ -337,6 +356,90 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
               className="shrink-0 rounded-2xl bg-ember px-5 py-3 text-sm font-semibold text-paper transition active:scale-95 disabled:opacity-40"
             >
               添加
+            </button>
+          </div>
+        </div>
+      ) : (
+        /* 任务池 */
+        <div className="mt-5">
+          <p className="text-sm leading-relaxed text-ink-soft">
+            池子是明天的候选，不是义务清单。每天早晨只选一个当 MIT，完成自动勾掉。
+          </p>
+          <div className="mt-4 space-y-2">
+            {tasks.filter((t) => !t.doneAt).length === 0 && (
+              <p className="text-sm text-ink-soft">池子是空的。晨间写下的任务没做完时，晚间流程可以一键放回来。</p>
+            )}
+            {tasks
+              .filter((t) => !t.doneAt)
+              .map((t) => (
+                <div
+                  key={t.id}
+                  className="flex items-center justify-between gap-3 rounded-2xl border border-ink/15 bg-white/50 px-4 py-3"
+                >
+                  <p className="min-w-0 text-[15px] leading-relaxed">{t.text}</p>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => void completeTask(t.id).then(load)}
+                      aria-label="完成"
+                      className="text-moss underline underline-offset-4"
+                    >
+                      完成
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void deleteTask(t.id).then(load)}
+                      aria-label="删除任务"
+                      className="text-lg leading-none text-ink-soft/60"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+              ))}
+          </div>
+          {tasks.some((t) => t.doneAt) && (
+            <>
+              <p className="mt-6 text-xs tracking-wide text-ink-soft">
+                已完成 · {tasks.filter((t) => t.doneAt).length}
+              </p>
+              <div className="mt-2 space-y-2">
+                {tasks
+                  .filter((t) => t.doneAt)
+                  .slice(0, 10)
+                  .map((t) => (
+                    <div key={t.id} className="flex items-center justify-between gap-3 px-1">
+                      <p className="min-w-0 truncate text-sm text-ink-soft/70 line-through">{t.text}</p>
+                      <button
+                        type="button"
+                        onClick={() => void deleteTask(t.id).then(load)}
+                        aria-label="删除任务"
+                        className="shrink-0 text-sm leading-none text-ink-soft/50"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+              </div>
+            </>
+          )}
+          <div className="mt-4 flex gap-2">
+            <input
+              value={newTask}
+              onChange={(e) => setNewTask(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void addTaskFromInput()
+              }}
+              placeholder="往池子里放一个候选任务…"
+              className="w-full rounded-2xl border border-ink/15 bg-white/50 px-4 py-3 text-[15px] outline-none placeholder:text-ink-soft/50 focus:border-ember/50"
+            />
+            <button
+              type="button"
+              disabled={!newTask.trim()}
+              onClick={() => void addTaskFromInput()}
+              className="shrink-0 rounded-2xl bg-ember px-5 py-3 text-sm font-semibold text-paper transition active:scale-95 disabled:opacity-40"
+            >
+              入池
             </button>
           </div>
         </div>

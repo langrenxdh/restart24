@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import type { Anchor } from '../db'
+import { useEffect, useState } from 'react'
+import type { Anchor, Task } from '../db'
+import { getOpenTasks } from '../db'
 import { DELIVERABLE_TEMPLATES } from '../copy'
 import { Chip, PrimaryButton, Screen } from './ui'
 
@@ -25,6 +26,7 @@ const STEPS = [
  * 晨间启动：3 步身体唤醒 + 写下今天唯一的 MIT。
  * compressed = 30 秒压缩版（错过早晨时，永不责备）。
  * relay = 昨夜排好的锚点：MIT 预填，只确认或微调。
+ * MIT 可以从任务池选一个（绑定 taskId，完成自动勾掉）。
  */
 export default function MorningRitual({
   compressed,
@@ -33,10 +35,16 @@ export default function MorningRitual({
 }: {
   compressed: boolean
   relay: Anchor | null
-  onComplete: (mit: string) => void
+  onComplete: (mit: string, taskId?: string) => void
 }) {
   const [step, setStep] = useState(compressed ? 3 : 0)
   const [mit, setMit] = useState(relay?.nextStep ?? '')
+  const [taskId, setTaskId] = useState<string | undefined>(undefined)
+  const [pool, setPool] = useState<Task[]>([])
+
+  useEffect(() => {
+    void getOpenTasks().then((ts) => setPool(ts.slice(0, 6)))
+  }, [])
 
   if (step < STEPS.length) {
     const s = STEPS[step]
@@ -69,22 +77,49 @@ export default function MorningRitual({
           {relay.ifThen && <p className="mt-1">如果想拖延：{relay.ifThen}</p>}
         </div>
       )}
+      {pool.length > 0 && (
+        <div className="mt-5">
+          <p className="text-sm text-ink-soft">从任务池选一个：</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {pool.map((t) => (
+              <Chip
+                key={t.id}
+                onClick={() => {
+                  setMit(t.text)
+                  setTaskId(t.id)
+                }}
+              >
+                {t.text}
+              </Chip>
+            ))}
+          </div>
+        </div>
+      )}
       <textarea
         value={mit}
-        onChange={(e) => setMit(e.target.value)}
+        onChange={(e) => {
+          setMit(e.target.value)
+          setTaskId(undefined)
+        }}
         rows={3}
         placeholder="例如：写完「重启系统」第一段的 200 字草稿"
         className="mt-5 w-full resize-none rounded-2xl border border-ink/15 bg-white/50 px-4 py-3 text-[15px] leading-relaxed outline-none placeholder:text-ink-soft/50 focus:border-ember/50"
       />
       <div className="mt-3 flex flex-wrap gap-2">
         {DELIVERABLE_TEMPLATES.map((t) => (
-          <Chip key={t} onClick={() => setMit(t)}>
+          <Chip
+            key={t}
+            onClick={() => {
+              setMit(t)
+              setTaskId(undefined)
+            }}
+          >
             {t}
           </Chip>
         ))}
       </div>
       <div className="mt-auto pb-4 pt-6">
-        <PrimaryButton disabled={!mit.trim()} onClick={() => onComplete(mit.trim())}>
+        <PrimaryButton disabled={!mit.trim()} onClick={() => onComplete(mit.trim(), taskId)}>
           就它了
         </PrimaryButton>
       </div>

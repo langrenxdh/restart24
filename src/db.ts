@@ -36,12 +36,21 @@ export interface Rule {
   updatedAt: number
 }
 
+/** 任务池：明天的候选清单，不是义务清单。每天只选一个当 MIT。 */
+export interface Task {
+  id: string
+  text: string
+  createdAt: number
+  doneAt: number | null
+}
+
 export interface DayRecord {
   date: string // YYYY-MM-DD
   mit: string
+  mitTaskId?: string // MIT 绑定的任务池条目
   morningDone: boolean
   focusSessions: FocusSession[]
-  deliverable: Deliverable | null
+  deliverables: Deliverable[] // 首个 = 锁定当日胜利；之后可追加
   review: { best: string; blocker: string; action: string; keep: string; drop: string } | null
   anchor: Anchor | null
   resetCard: ResetCard | null
@@ -52,11 +61,13 @@ export interface DayRecord {
 class RestartDB extends Dexie {
   days!: Table<DayRecord, string>
   rules!: Table<Rule, string>
+  tasks!: Table<Task, string>
 
   constructor() {
     super('restart24')
     this.version(1).stores({ days: 'date' })
     this.version(2).stores({ days: 'date', rules: 'id' })
+    this.version(3).stores({ days: 'date', rules: 'id', tasks: 'id' })
   }
 }
 
@@ -84,13 +95,27 @@ export function shiftKey(key: string, days: number): string {
 
 export async function getDay(date: string): Promise<DayRecord> {
   const found = await db.days.get(date)
-  if (found) return found
+  if (found) {
+    // 旧数据迁移：deliverable（单个）→ deliverables（数组）
+    const legacy = (found as DayRecord & { deliverable?: Deliverable | null }).deliverable
+    const hasArray = Array.isArray(found.deliverables)
+    if ((legacy || !hasArray)) {
+      const normalized: DayRecord = {
+        ...found,
+        deliverables: hasArray && found.deliverables.length > 0 ? found.deliverables : legacy ? [legacy] : [],
+      }
+      delete (normalized as DayRecord & { deliverable?: unknown }).deliverable
+      await db.days.put(normalized)
+      return normalized
+    }
+    return found
+  }
   const fresh: DayRecord = {
     date,
     mit: '',
     morningDone: false,
     focusSessions: [],
-    deliverable: null,
+    deliverables: [],
     review: null,
     anchor: null,
     resetCard: null,
@@ -114,9 +139,18 @@ export function closeRunning(day: DayRecord): FocusSession[] {
   )
 }
 
+/** 追加一个交付物：首个锁定当日胜利，后续为追加成果；同时收尾 running 轮、勾掉绑定的池任务 */
+export async function appendDeliverable(day: DayRecord, d: Deliverable): Promise<void> {
+  await updateDay(day.date, {
+    deliverables: [...day.deliverables, d],
+    focusSessions: closeRunning(day),
+  })
+  if (day.mitTaskId) await completeTask(day.mitTaskId)
+}
+
 /** 连续有交付物的天数：从今天往回数；今天还没交付则从昨天数 */
 export function computeChain(days: DayRecord[], today: string): number {
-  const won = new Set(days.filter((d) => d.deliverable).map((d) => d.date))
+  const won = new Set(days.filter((d) => d.deliverables.length > 0).map((d) => d.date))
   let chain = 0
   let cursor = won.has(today) ? today : shiftKey(today, -1)
   while (won.has(cursor)) {
@@ -124,6 +158,29 @@ export function computeChain(days: DayRecord[], today: string): number {
     cursor = shiftKey(cursor, -1)
   }
   return chain
+}
+
+// ---------- 任务池 ----------
+
+export async function getOpenTasks(): Promise<Task[]> {
+  return (await db.tasks.toArray())
+    .filter((t) => !t.doneAt)
+    .sort((a, b) => b.createdAt - a.createdAt)
+}
+
+export async function addTask(text: string): Promise<Task> {
+  const t: Task = { id: uid(), text: text.trim(), createdAt: Date.now(), doneAt: null }
+  await db.tasks.put(t)
+  return t
+}
+
+export async function completeTask(id: string): Promise<void> {
+  const t = await db.tasks.get(id)
+  if (t && !t.doneAt) await db.tasks.put({ ...t, doneAt: Date.now() })
+}
+
+export async function deleteTask(id: string): Promise<void> {
+  await db.tasks.delete(id)
 }
 
 /** 最近使用的 If-Then 规则（按使用次数排序） */

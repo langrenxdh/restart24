@@ -22,7 +22,7 @@ export default function ResetFlow({
   onExit: () => void
 }) {
   const auto =
-    day.deliverable?.text ??
+    day.deliverables[0]?.text ??
     [...day.focusSessions].reverse().find((s) => s.result === 'done' || s.result === 'downgraded')
       ?.commitment ??
     ''

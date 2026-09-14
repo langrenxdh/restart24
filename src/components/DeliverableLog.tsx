@@ -3,15 +3,17 @@ import type { DayRecord } from '../db'
 import { dateLabel } from '../db'
 import { GhostButton, PrimaryButton, Screen } from './ui'
 
-/** 记录今日可见交付物 → 触发「我赢了」 */
+/** 记录交付物：首个锁定胜利，append = 赢后追加成果 */
 export default function DeliverableLog({
   day,
   initial,
+  append = false,
   onSave,
   onCancel,
 }: {
   day: DayRecord
   initial: string
+  append?: boolean
   onSave: (text: string, proofUrl: string) => void
   onCancel: () => void
 }) {
@@ -21,9 +23,9 @@ export default function DeliverableLog({
   return (
     <Screen>
       <p className="text-sm text-ink-soft">{dateLabel(day.date)}</p>
-      <h1 className="mt-6 font-display text-4xl leading-snug">今天做成了什么？</h1>
+      <h1 className="mt-6 font-display text-4xl leading-snug">{append ? '追加一个成果' : '今天做成了什么？'}</h1>
       <p className="mt-4 text-[15px] leading-relaxed text-ink-soft">
-        写下来，给大脑发一次胜利信号。10 分钟的版本也算。
+        {append ? '胜利已锁定，写下的每一个都算复利。' : '写下来，给大脑发一次胜利信号。10 分钟的版本也算。'}
       </p>
       <textarea
         value={text}
@@ -40,7 +42,7 @@ export default function DeliverableLog({
       />
       <div className="mt-auto space-y-3 pb-4 pt-6">
         <PrimaryButton disabled={!text.trim()} onClick={() => onSave(text.trim(), proofUrl.trim())}>
-          记下，今天赢了
+          {append ? '记下这个成果' : '记下，今天赢了'}
         </PrimaryButton>
         <GhostButton onClick={onCancel}>返回</GhostButton>
       </div>

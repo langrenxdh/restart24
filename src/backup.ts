@@ -1,4 +1,4 @@
-import { db, dateLabel, shiftKey, todayKey, type DayRecord, type Rule } from './db'
+import { db, dateLabel, shiftKey, todayKey, type DayRecord, type Rule, type Task } from './db'
 import { dayStatus, type DayStatus } from './mode'
 
 function download(blob: Blob, name: string): void {
@@ -16,7 +16,8 @@ function download(blob: Blob, name: string): void {
 export async function exportJSON(): Promise<void> {
   const days = await db.days.toArray()
   const rules = await db.rules.toArray()
-  const payload = { app: 'restart24', version: 1, exportedAt: new Date().toISOString(), days, rules }
+  const tasks = await db.tasks.toArray()
+  const payload = { app: 'restart24', version: 2, exportedAt: new Date().toISOString(), days, rules, tasks }
   download(
     new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }),
     `restart24-backup-${todayKey()}.json`,
@@ -25,7 +26,7 @@ export async function exportJSON(): Promise<void> {
 
 /** 导入备份（覆盖现有全部数据） */
 export async function importJSON(text: string): Promise<void> {
-  const data = JSON.parse(text) as { days?: unknown[]; rules?: unknown[] }
+  const data = JSON.parse(text) as { days?: unknown[]; rules?: unknown[]; tasks?: unknown[] }
   if (!Array.isArray(data.days)) throw new Error('备份文件里没有 days 数据')
   const days = data.days.filter((d): d is DayRecord => typeof (d as DayRecord)?.date === 'string')
   const rules = Array.isArray(data.rules)
@@ -34,11 +35,19 @@ export async function importJSON(text: string): Promise<void> {
         return typeof rule?.id === 'string' && typeof rule?.text === 'string'
       })
     : []
-  await db.transaction('rw', db.days, db.rules, async () => {
+  const tasks = Array.isArray(data.tasks)
+    ? data.tasks.filter((t): t is Task => {
+        const task = t as Task
+        return typeof task?.id === 'string' && typeof task?.text === 'string'
+      })
+    : []
+  await db.transaction('rw', db.days, db.rules, db.tasks, async () => {
     await db.days.clear()
     await db.rules.clear()
+    await db.tasks.clear()
     await db.days.bulkPut(days)
     await db.rules.bulkPut(rules)
+    await db.tasks.bulkPut(tasks)
   })
 }
 
@@ -69,10 +78,10 @@ export async function exportWeeklyMarkdown(): Promise<void> {
     lines.push(`## ${dateLabel(k)}`, '', `- 状态：${statusText(st)}`)
     if (d) {
       if (d.mit) lines.push(`- MIT：${d.mit}`)
-      if (d.deliverable) {
-        const proof = d.deliverable.proofUrl ? `（${d.deliverable.proofUrl}）` : ''
-        lines.push(`- 成果：${d.deliverable.text}${proof}`)
-      }
+      d.deliverables.forEach((dv, i) => {
+        const proof = dv.proofUrl ? `（${dv.proofUrl}）` : ''
+        lines.push(`- ${i === 0 ? '成果' : '追加'}：${dv.text}${proof}`)
+      })
       const done = d.focusSessions.filter((s) => s.result === 'done' || s.result === 'downgraded')
       if (done.length > 0) {
         const mins = done.reduce((sum, s) => sum + s.minutes, 0)
