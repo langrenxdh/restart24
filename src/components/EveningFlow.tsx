@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import type { DayRecord, Rule } from '../db'
 import {
-  addTask,
   appendDeliverable,
   completeTask,
   deleteTask,
+  findOrCreateOpenTask,
   getRecentRules,
   updateDay,
   upsertRuleByText,
@@ -91,10 +91,10 @@ export default function EveningFlow({
     )
   }
 
-  // MIT 若不在任务池里，为其补建一条（顺延/回池才有处可去）
+  // MIT 若不在任务池里，为其补建一条（同文案的未完成任务直接复用，防止重复入池）
   async function ensureTask(): Promise<void> {
     if (day.mitTaskId) return
-    const t = await addTask(day.mit)
+    const t = await findOrCreateOpenTask(day.mit)
     await updateDay(day.date, { mitTaskId: t.id })
     onChanged()
   }
@@ -121,7 +121,7 @@ export default function EveningFlow({
   }
 
   async function persistDeliverable() {
-    await appendDeliverable(day, {
+    await appendDeliverable(day.date, {
       text: deliverableText.trim(),
       proofUrl: proofUrl.trim() || undefined,
       loggedAt: Date.now(),

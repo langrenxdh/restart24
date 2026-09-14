@@ -1,6 +1,18 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import type { DayRecord, Rule, Task } from '../db'
-import { addTask, completeTask, db, deleteTask, dateLabel, todayKey, uid } from '../db'
+import {
+  addTask,
+  completeTask,
+  db,
+  deleteTask,
+  dateLabel,
+  getDay,
+  normalizeDay,
+  todayKey,
+  uid,
+  updateDay,
+  updateTaskText,
+} from '../db'
 import { dayStatus } from '../mode'
 import { exportJSON, exportWeeklyMarkdown, importJSON } from '../backup'
 import { Screen } from './ui'
@@ -34,9 +46,11 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
   const [selected, setSelected] = useState<string | null>(null)
   const [newRule, setNewRule] = useState('')
   const [newTask, setNewTask] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editText, setEditText] = useState('')
 
   async function load(): Promise<void> {
-    setDays(await db.days.toArray())
+    setDays((await db.days.toArray()).map(normalizeDay))
     setRules((await db.rules.toArray()).sort((a, b) => b.uses - a.uses || b.updatedAt - a.updatedAt))
     setTasks(
       (await db.tasks.toArray()).sort((a, b) => {
@@ -85,6 +99,32 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
     await addTask(text)
     setNewTask('')
     await load()
+  }
+
+  /** 完成：乐观更新（界面立即反应），再落库；连点只记一次 */
+  function completeTaskNow(id: string) {
+    setTasks((ts) => ts.map((x) => (x.id === id ? { ...x, doneAt: x.doneAt ?? Date.now() } : x)))
+    void completeTask(id).then(load)
+  }
+
+  function deleteTaskNow(id: string) {
+    setTasks((ts) => ts.filter((x) => x.id !== id))
+    void deleteTask(id)
+  }
+
+  async function saveTaskEdit(id: string) {
+    setEditingId(null)
+    await updateTaskText(id, editText)
+    await load()
+  }
+
+  /** 删除某天的某条成果记录（用于清理误录的重复项） */
+  async function removeDeliverable(date: string, index: number) {
+    if (!window.confirm('删除这条成果记录？连胜会按剩余记录重新计算。')) return
+    const rec = await getDay(date)
+    await updateDay(date, { deliverables: rec.deliverables.filter((_, i) => i !== index) })
+    await load()
+    onChanged()
   }
 
   async function removeRule(id: string) {
@@ -240,19 +280,29 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
                     </p>
                   )}
                   {selectedRec.deliverables.map((d, i) => (
-                    <p key={i}>
-                      <span className="text-ink-soft">{i === 0 ? '成果：' : '追加：'}</span>
-                      {d.text}
-                      {d.proofUrl && (
-                        <a
-                          href={d.proofUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="ml-1 text-ember underline underline-offset-2"
-                        >
-                          链接
-                        </a>
-                      )}
+                    <p key={i} className="flex items-start justify-between gap-2">
+                      <span className="min-w-0">
+                        <span className="text-ink-soft">{i === 0 ? '成果：' : '追加：'}</span>
+                        {d.text}
+                        {d.proofUrl && (
+                          <a
+                            href={d.proofUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="ml-1 text-ember underline underline-offset-2"
+                          >
+                            链接
+                          </a>
+                        )}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => void removeDeliverable(selected, i)}
+                        aria-label="删除这条成果"
+                        className="shrink-0 pt-0.5 text-xs text-ink-soft/60"
+                      >
+                        删除
+                      </button>
                     </p>
                   ))}
                   {(() => {
@@ -374,27 +424,68 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
               .map((t) => (
                 <div
                   key={t.id}
-                  className="flex items-center justify-between gap-3 rounded-2xl border border-ink/15 bg-white/50 px-4 py-3"
+                  className="rounded-2xl border border-ink/15 bg-white/50 px-4 py-3"
                 >
-                  <p className="min-w-0 text-[15px] leading-relaxed">{t.text}</p>
-                  <div className="flex shrink-0 items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => void completeTask(t.id).then(load)}
-                      aria-label="完成"
-                      className="text-moss underline underline-offset-4"
-                    >
-                      完成
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void deleteTask(t.id).then(load)}
-                      aria-label="删除任务"
-                      className="text-lg leading-none text-ink-soft/60"
-                    >
-                      ×
-                    </button>
-                  </div>
+                  {editingId === t.id ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        value={editText}
+                        autoFocus
+                        onChange={(e) => setEditText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') void saveTaskEdit(t.id)
+                          if (e.key === 'Escape') setEditingId(null)
+                        }}
+                        className="w-full rounded-xl border border-ember/40 bg-white px-3 py-2 text-[15px] outline-none"
+                      />
+                      <button
+                        type="button"
+                        disabled={!editText.trim()}
+                        onClick={() => void saveTaskEdit(t.id)}
+                        className="shrink-0 rounded-xl bg-ember px-3 py-2 text-sm font-semibold text-paper disabled:opacity-40"
+                      >
+                        保存
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingId(null)}
+                        className="shrink-0 px-1 text-sm text-ink-soft"
+                      >
+                        取消
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="min-w-0 text-[15px] leading-relaxed">{t.text}</p>
+                      <div className="flex shrink-0 items-center gap-3 text-sm">
+                        <button
+                          type="button"
+                          onClick={() => completeTaskNow(t.id)}
+                          className="text-moss underline underline-offset-4"
+                        >
+                          完成
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingId(t.id)
+                            setEditText(t.text)
+                          }}
+                          className="text-ink-soft underline underline-offset-4"
+                        >
+                          改
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteTaskNow(t.id)}
+                          aria-label="删除任务"
+                          className="text-ink-soft/60"
+                        >
+                          删
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
           </div>

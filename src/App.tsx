@@ -4,6 +4,7 @@ import {
   appendDeliverable,
   computeChain,
   db,
+  ensureSchema,
   getDay,
   shiftKey,
   todayKey,
@@ -14,6 +15,7 @@ import {
 import { notify } from './notify'
 import DeliverableLog from './components/DeliverableLog'
 import EmergencyFlow from './components/EmergencyFlow'
+import ErrorBoundary from './components/ErrorBoundary'
 import EveningFlow from './components/EveningFlow'
 import FocusFlow from './components/FocusFlow'
 import InstallGuide from './components/InstallGuide'
@@ -55,6 +57,7 @@ export default function App() {
 
   useEffect(() => {
     void (async () => {
+      await ensureSchema() // 先把旧格式记录迁移掉，再做一切
       const d = await refresh()
       // 刷新/重启后恢复运行中的专注轮
       if (d.focusSessions.some((s) => s.result === 'running')) setView('focus')
@@ -107,7 +110,7 @@ export default function App() {
 
   async function saveDeliverable(text: string, proofUrl: string) {
     if (!day) return
-    await appendDeliverable(day, {
+    await appendDeliverable(day.date, {
       text,
       proofUrl: proofUrl || undefined,
       loggedAt: Date.now(),
@@ -252,7 +255,7 @@ export default function App() {
         </button>
       )}
       {view === 'now' && <InstallGuide />}
-      {body}
+      <ErrorBoundary>{body}</ErrorBoundary>
     </div>
   )
 }

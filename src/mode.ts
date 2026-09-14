@@ -12,7 +12,8 @@ import type { DayRecord } from './db'
 export type Mode = 'morning' | 'quick-start' | 'focus' | 'won'
 
 export function computeMode(day: DayRecord, now = new Date()): Mode {
-  if (day.deliverables.length > 0) return 'won'
+  const deliverables = Array.isArray(day.deliverables) ? day.deliverables : []
+  if (deliverables.length > 0) return 'won'
   if (day.mit.trim()) return 'focus'
   return now.getHours() < 15 ? 'morning' : 'quick-start'
 }
@@ -21,6 +22,7 @@ export function computeMode(day: DayRecord, now = new Date()): Mode {
 export type DayStatus = 'won' | 'emergencyWon' | 'lost'
 
 export function dayStatus(day: DayRecord): DayStatus {
-  if (day.deliverables.length === 0) return 'lost'
-  return day.deliverables[0].emergency ? 'emergencyWon' : 'won'
+  const deliverables = Array.isArray(day.deliverables) ? day.deliverables : []
+  if (deliverables.length === 0) return 'lost'
+  return deliverables[0].emergency ? 'emergencyWon' : 'won'
 }

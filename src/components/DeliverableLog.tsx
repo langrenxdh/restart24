@@ -19,6 +19,7 @@ export default function DeliverableLog({
 }) {
   const [text, setText] = useState(initial)
   const [proofUrl, setProofUrl] = useState('')
+  const [saving, setSaving] = useState(false)
 
   return (
     <Screen>
@@ -41,8 +42,14 @@ export default function DeliverableLog({
         className="mt-3 w-full rounded-2xl border border-ink/15 bg-white/50 px-4 py-3 text-[15px] outline-none placeholder:text-ink-soft/50 focus:border-ember/50"
       />
       <div className="mt-auto space-y-3 pb-4 pt-6">
-        <PrimaryButton disabled={!text.trim()} onClick={() => onSave(text.trim(), proofUrl.trim())}>
-          {append ? '记下这个成果' : '记下，今天赢了'}
+        <PrimaryButton
+          disabled={saving || !text.trim()}
+          onClick={() => {
+            setSaving(true) // 防连点：保存中不可重复提交
+            onSave(text.trim(), proofUrl.trim())
+          }}
+        >
+          {saving ? '记录中…' : append ? '记下这个成果' : '记下，今天赢了'}
         </PrimaryButton>
         <GhostButton onClick={onCancel}>返回</GhostButton>
       </div>

@@ -1,4 +1,13 @@
-import { db, dateLabel, shiftKey, todayKey, type DayRecord, type Rule, type Task } from './db'
+import {
+  db,
+  dateLabel,
+  normalizeDay,
+  shiftKey,
+  todayKey,
+  type DayRecord,
+  type Rule,
+  type Task,
+} from './db'
 import { dayStatus, type DayStatus } from './mode'
 
 function download(blob: Blob, name: string): void {
@@ -14,7 +23,7 @@ function download(blob: Blob, name: string): void {
 
 /** 全量 JSON 备份 */
 export async function exportJSON(): Promise<void> {
-  const days = await db.days.toArray()
+  const days = (await db.days.toArray()).map(normalizeDay)
   const rules = await db.rules.toArray()
   const tasks = await db.tasks.toArray()
   const payload = { app: 'restart24', version: 2, exportedAt: new Date().toISOString(), days, rules, tasks }
@@ -59,7 +68,7 @@ function statusText(status: DayStatus): string {
 
 /** 最近 7 天的 Markdown 周报 */
 export async function exportWeeklyMarkdown(): Promise<void> {
-  const all = await db.days.toArray()
+  const all = (await db.days.toArray()).map(normalizeDay)
   const map = new Map(all.map((d) => [d.date, d]))
   const today = todayKey()
 

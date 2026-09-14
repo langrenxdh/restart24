@@ -93,22 +93,31 @@ export function shiftKey(key: string, days: number): string {
   return todayKey(dt)
 }
 
+/** 归一化：兼容 v2 及更早的旧记录（deliverable 单个 → deliverables 数组） */
+export function normalizeDay(d: DayRecord): DayRecord {
+  if (Array.isArray(d.deliverables)) return d
+  const legacy = (d as DayRecord & { deliverable?: Deliverable | null }).deliverable
+  const normalized = { ...d, deliverables: legacy ? [legacy] : [] }
+  delete (normalized as DayRecord & { deliverable?: unknown }).deliverable
+  return normalized
+}
+
+/** 启动时清扫一遍历史数据，把旧格式记录补上 deliverables 数组 */
+let schemaSwept = false
+export async function ensureSchema(): Promise<void> {
+  if (schemaSwept) return
+  schemaSwept = true
+  const stale = (await db.days.toArray()).filter((d) => !Array.isArray(d.deliverables))
+  for (const d of stale) await db.days.put(normalizeDay(d))
+}
+
 export async function getDay(date: string): Promise<DayRecord> {
   const found = await db.days.get(date)
   if (found) {
-    // 旧数据迁移：deliverable（单个）→ deliverables（数组）
-    const legacy = (found as DayRecord & { deliverable?: Deliverable | null }).deliverable
-    const hasArray = Array.isArray(found.deliverables)
-    if ((legacy || !hasArray)) {
-      const normalized: DayRecord = {
-        ...found,
-        deliverables: hasArray && found.deliverables.length > 0 ? found.deliverables : legacy ? [legacy] : [],
-      }
-      delete (normalized as DayRecord & { deliverable?: unknown }).deliverable
-      await db.days.put(normalized)
-      return normalized
-    }
-    return found
+    if (Array.isArray(found.deliverables)) return found
+    const normalized = normalizeDay(found)
+    await db.days.put(normalized)
+    return normalized
   }
   const fresh: DayRecord = {
     date,
@@ -139,18 +148,27 @@ export function closeRunning(day: DayRecord): FocusSession[] {
   )
 }
 
-/** 追加一个交付物：首个锁定当日胜利，后续为追加成果；同时收尾 running 轮、勾掉绑定的池任务 */
-export async function appendDeliverable(day: DayRecord, d: Deliverable): Promise<void> {
-  await updateDay(day.date, {
-    deliverables: [...day.deliverables, d],
-    focusSessions: closeRunning(day),
+/** 追加一个交付物（全事务：读取-修改-写入原子完成，连点/并发不会产生重复记录） */
+export async function appendDeliverable(date: string, d: Deliverable): Promise<void> {
+  let mitTaskId: string | undefined
+  await db.transaction('rw', db.days, async () => {
+    const day = await getDay(date)
+    mitTaskId = day.mitTaskId
+    await db.days.put({
+      ...day,
+      deliverables: [...day.deliverables, d],
+      focusSessions: closeRunning(day),
+      updatedAt: Date.now(),
+    })
   })
-  if (day.mitTaskId) await completeTask(day.mitTaskId)
+  if (mitTaskId) await completeTask(mitTaskId)
 }
 
 /** 连续有交付物的天数：从今天往回数；今天还没交付则从昨天数 */
 export function computeChain(days: DayRecord[], today: string): number {
-  const won = new Set(days.filter((d) => d.deliverables.length > 0).map((d) => d.date))
+  const won = new Set(
+    days.map(normalizeDay).filter((d) => d.deliverables.length > 0).map((d) => d.date),
+  )
   let chain = 0
   let cursor = won.has(today) ? today : shiftKey(today, -1)
   while (won.has(cursor)) {
@@ -172,6 +190,20 @@ export async function addTask(text: string): Promise<Task> {
   const t: Task = { id: uid(), text: text.trim(), createdAt: Date.now(), doneAt: null }
   await db.tasks.put(t)
   return t
+}
+
+/** 找同文案的未完成任务，没有才新建（防止重复入池） */
+export async function findOrCreateOpenTask(text: string): Promise<Task> {
+  const trimmed = text.trim()
+  if (!trimmed) throw new Error('任务内容为空')
+  const existing = await db.tasks.filter((t) => !t.doneAt && t.text === trimmed).first()
+  if (existing) return existing
+  return addTask(trimmed)
+}
+
+export async function updateTaskText(id: string, text: string): Promise<void> {
+  const t = await db.tasks.get(id)
+  if (t && text.trim()) await db.tasks.put({ ...t, text: text.trim() })
 }
 
 export async function completeTask(id: string): Promise<void> {

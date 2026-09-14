@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { DayRecord, FocusSession } from '../db'
-import { completeTask, uid, updateDay } from '../db'
+import { appendDeliverable, uid, updateDay } from '../db'
 import { playChime } from '../chime'
 import { Chip, GhostButton, PrimaryButton, Screen } from './ui'
 
@@ -102,19 +102,12 @@ export default function EmergencyFlow({
   }
 
   async function saveDeliverable() {
-    await updateDay(day.date, {
-      deliverables: [
-        ...day.deliverables,
-        {
-          text: result.trim(),
-          proofUrl: proofUrl.trim() || undefined,
-          loggedAt: Date.now(),
-          emergency: true,
-        },
-      ],
-      focusSessions: settledSessions(),
+    await appendDeliverable(day.date, {
+      text: result.trim(),
+      proofUrl: proofUrl.trim() || undefined,
+      loggedAt: Date.now(),
+      emergency: true,
     })
-    if (day.mitTaskId) await completeTask(day.mitTaskId)
     onChanged()
     setPhase('anchor')
   }
