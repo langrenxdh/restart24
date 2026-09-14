@@ -74,7 +74,7 @@ export default function MorningRitual({
       {relay && (
         <div className="mt-4 rounded-2xl bg-paper-deep px-4 py-3 text-sm leading-relaxed text-ink-soft">
           {relay.startTime && <p>昨夜排好的：{relay.startTime} 开始。</p>}
-          {relay.ifThen && <p className="mt-1">如果想拖延：{relay.ifThen}</p>}
+          {relay.ifThen && <p className="mt-1">「{relay.ifThen}」</p>}
         </div>
       )}
       {pool.length > 0 && (
@@ -104,7 +104,7 @@ export default function MorningRitual({
         }}
         rows={3}
         placeholder="例如：写完「重启系统」第一段的 200 字草稿"
-        className="mt-5 w-full resize-none rounded-2xl border border-ink/15 bg-white/50 px-4 py-3 text-[15px] leading-relaxed outline-none placeholder:text-ink-soft/50 focus:border-ember/50"
+        className="mt-5 w-full resize-none border-b border-ink/25 bg-transparent px-1 py-2 text-[15px] leading-relaxed outline-none transition-colors placeholder:text-ink-soft/50 focus:border-ember/60"
       />
       <div className="mt-3 flex flex-wrap gap-2">
         {DELIVERABLE_TEMPLATES.map((t) => (

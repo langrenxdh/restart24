@@ -5,9 +5,9 @@ import { DEFAULT_ANCHOR_START } from '../config'
 import { GhostButton, PrimaryButton, Screen } from './ui'
 
 const textareaCls =
-  'w-full resize-none rounded-2xl border border-ink/15 bg-white/50 px-4 py-3 text-[15px] leading-relaxed outline-none placeholder:text-ink-soft/50 focus:border-ember/50'
+  'w-full resize-none rounded-2xl border border-ink/15 bg-paper-deep/60 px-4 py-3 text-[15px] leading-relaxed outline-none placeholder:text-ink-soft/50 focus:border-ember/50'
 const inputCls =
-  'w-full rounded-2xl border border-ink/15 bg-white/50 px-4 py-3 text-[15px] outline-none placeholder:text-ink-soft/50 focus:border-ember/50'
+  'w-full rounded-2xl border border-ink/15 bg-paper-deep/60 px-4 py-3 text-[15px] outline-none placeholder:text-ink-soft/50 focus:border-ember/50'
 
 /**
  * 午间复位（DESIGN.md §6.4）：三行复位卡 + 可选粗锚点。
@@ -55,18 +55,15 @@ export default function ResetFlow({
   return (
     <Screen>
       <p className="text-sm text-ink-soft">午间复位</p>
-      <h1 className="mt-6 font-display text-3xl leading-snug">三行复位卡</h1>
-      <p className="mt-3 text-[15px] leading-relaxed text-ink-soft">
-        轻运动 10 分钟、简单吃点，避免高糖高油。复位不是偷懒，是换挡。
+      <h1 className="mt-5 font-display text-3xl leading-snug">三行复位卡</h1>
+      <p className="mt-2 text-[15px] leading-relaxed text-ink-soft">
+        轻运动 10 分钟、简单吃点。复位不是偷懒，是换挡——铁律：上午做什么，下午继续做什么。
       </p>
-      <div className="mt-5 rounded-2xl bg-paper-deep px-4 py-3 text-sm leading-relaxed text-ink-soft">
-        铁律：上午做什么，下午继续做什么。
-      </div>
 
-      <label className="mt-5 block text-sm text-ink-soft">1. 上午完成了什么？</label>
+      <label className="mt-4 block text-sm text-ink-soft">1. 上午完成了什么？</label>
       <input value={morningDid} maxLength={100} onChange={(e) => setMorningDid(e.target.value)} className={`mt-2 ${inputCls}`} />
 
-      <label className="mt-4 block text-sm text-ink-soft">2. 下午最重要的一件事？</label>
+      <label className="mt-3 block text-sm text-ink-soft">2. 下午最重要的一件事？</label>
       <input
         value={afternoonOne}
         onChange={(e) => setAfternoonOne(e.target.value)}
@@ -75,7 +72,7 @@ export default function ResetFlow({
         className={`mt-2 ${inputCls}`}
       />
 
-      <label className="mt-4 block text-sm text-ink-soft">3. 几点开始？</label>
+      <label className="mt-3 block text-sm text-ink-soft">3. 几点开始？</label>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <input
           type="time"

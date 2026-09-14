@@ -6,8 +6,15 @@
   --color-ink: #33291c;
   --color-ink-soft: #7c6c53;
   --color-ember: #c05f1c;
+  --color-ember-deep: #9d4a10;
   --color-moss: #6f7a4d;
-  --font-display: Georgia, "Songti SC", "Noto Serif SC", "STSong", serif;
+  --color-moss-deep: #5d6840;
+  /* 宋体数字为 lining（全高），Georgia 老式数字 3/4/5/7/9 会下沉——大数字场景宋体在前 */
+  --font-display: "Songti SC", "Noto Serif SC", Georgia, "STSong", serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  /* 动效令牌：全应用动效从这里对齐 */
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 html,
@@ -21,11 +28,41 @@ body {
   background-image: radial-gradient(rgba(51, 41, 28, 0.045) 1px, transparent 1px);
   background-size: 22px 22px;
   color: var(--color-ink);
-  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: contain;
+  transition: background-color 1.2s ease;
+}
+
+/* 暮色：晚间/深夜纸色沉档，墨与彩不动（东方评审 P4） */
+[data-phase='evening'] {
+  --color-paper: #f4ecda;
+  --color-paper-deep: #e8dcc2;
+}
+[data-phase='night'] {
+  --color-paper: #f0e6cf;
+  --color-paper-deep: #e2d3b6;
 }
 
 .tnum {
   font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 动效词汇表（评审后新增） ---------- */
+
+@keyframes view-in {
+  from { opacity: 0; }
+}
+@keyframes win-in {
+  from { opacity: 0; transform: scale(0.92); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+}
+@keyframes stamp {
+  from { opacity: 0; transform: scale(1.8) rotate(-10deg); }
+}
+@keyframes sheet-up {
+  from { opacity: 0; transform: translateY(24px); }
 }

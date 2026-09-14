@@ -34,6 +34,28 @@ export default function App() {
     if (running) setView(running.kind === 'emergency' ? 'emergency' : 'focus')
   }, [day])
 
+  // 物理返回手势/浏览器返回：从任何子视图回到今天（PWA 借镜 HIG 的免费正确性）
+  useEffect(() => {
+    function onPop() {
+      setView('now')
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+
+  /** 进入子视图时压一条历史记录，让返回键可用 */
+  function openView(v: View) {
+    if (v !== 'now') {
+      try {
+        history.pushState({ r24: true }, '')
+      } catch {
+        /* 罕见环境忽略 */
+      }
+    }
+    setView(v)
+  }
+  const wallToggle = () => openView(view === 'wall' ? 'now' : 'wall')
+
   // 午夜翻转：新的一天。专注/应急界面不强切——组件持有开轮日期，写回原日期；
   // 其余视图回到新一天的工作台。
   const lastViewKeyRef = useRef(dayKey)
@@ -74,7 +96,7 @@ export default function App() {
 
   const hour = new Date(now).getHours()
   const eveningOpen = !!day && !day.eveningDone && hour >= EVENING_OPEN_HOUR
-  const startEvening = () => setView('evening')
+  const startEvening = () => openView('evening')
   const won = !!day && day.deliverables.length > 0
   // 午间复位窗口（还没写过复位卡、还没赢）
   const resetOpen =
@@ -142,10 +164,11 @@ export default function App() {
         <TodayCard
           day={day}
           won
-          onStartFocus={() => setView('focus')}
+          eveningProminent
+          onStartFocus={() => openView('focus')}
           onLog={() => {
             setPrefill('')
-            setView('log')
+            openView('log')
           }}
           onStartEvening={startEvening}
         />
@@ -171,50 +194,76 @@ export default function App() {
     body = (
       <TodayCard
         day={day}
-        onStartFocus={() => setView('focus')}
+        eveningProminent={eveningOpen || !!day.eveningDone}
+        onStartFocus={() => openView('focus')}
         onLog={() => {
           setPrefill(last?.commitment ?? '')
-          setView('log')
+          openView('log')
         }}
         onStartEvening={startEvening}
-        onStartReset={resetOpen ? () => setView('reset') : undefined}
-        onStartEmergency={() => setView('emergency')}
+        onStartReset={resetOpen ? () => openView('reset') : undefined}
+        onStartEmergency={() => openView('emergency')}
         lateNight={lateNight}
       />
     )
   }
 
+  // 庆祝瞬间清场：赢的时刻不与任何卡片争夺注意力（双设计师共识）
+  const celebrating = mode === 'won' && wonView === 'celebrate'
+  // 深夜收束：TodayCard 已有应急卡时不再叠顶部横幅（西方 P1）
+  const bannerVisible =
+    view === 'now' && !!notice && !celebrating && !(notice === 'lateNight' && mode === 'focus')
+  const guideVisible =
+    view === 'now' && !celebrating && mode !== null && mode !== 'morning' && mode !== 'quick-start'
+  // 暮色：晚间/深夜纸色沉档（东方 P4）
+  const phase = hour >= 22 ? 'night' : hour >= 20 ? 'evening' : 'day'
+  // 新用户价值主张（西方 P8：10 秒内说清这是什么）
+  const showTagline =
+    view === 'now' && chain === 0 && !!day && !day.morningDone && day.deliverables.length === 0
+
   return (
-    <div className="mx-auto flex min-h-full max-w-[26rem] flex-col px-6 pb-8 pt-8">
+    <div
+      data-phase={phase}
+      className="mx-auto flex min-h-full max-w-[26rem] flex-col px-6 pb-[max(2rem,env(safe-area-inset-bottom))] pt-8"
+    >
       <header className="mb-4 flex items-center justify-between text-xs tracking-widest text-ink-soft">
         <span>
           重启24
-          {chain > 0 && <span className="ml-2 text-moss">连胜 {chain}</span>}
+          {chain > 0 && <span className="ml-2 text-moss-deep">连胜 {chain}</span>}
         </span>
         <span className="flex items-center gap-4">
           {view !== 'wall' && <span>{dateShort}</span>}
           {view !== 'focus' && (
             <button
               type="button"
-              onClick={() => setView(view === 'wall' ? 'now' : 'wall')}
-              className="text-ember underline-offset-4 active:underline"
+              onClick={wallToggle}
+              className="-my-2 py-2 text-ember-deep underline-offset-4 active:underline"
             >
               {view === 'wall' ? '关闭' : '成果墙'}
             </button>
           )}
         </span>
       </header>
-      {view === 'now' && notice && (
+      {showTagline && (
+        <p className="-mt-2 mb-4 text-center text-[11px] tracking-[0.2em] text-ink-soft/70">
+          一天只做一件事 · 做出来才算赢
+        </p>
+      )}
+      {bannerVisible && (
         <button
           type="button"
-          onClick={() => setView(notice === 'lateNight' ? 'emergency' : 'evening')}
-          className="mb-4 w-full rounded-2xl border border-ember/40 bg-ember/10 px-5 py-3 text-left text-sm text-ember transition active:scale-[0.98]"
+          onClick={() => openView(notice === 'lateNight' ? 'emergency' : 'evening')}
+          className="mb-4 w-full rounded-2xl border border-ember/40 bg-ember/10 px-5 py-3 text-left text-sm text-ember-deep transition active:scale-[0.98]"
         >
           {notice === 'lateNight' ? '还有时间做一个 10 分钟版本 →' : '睡前 45 分钟：复盘 + 排好明天 →'}
         </button>
       )}
-      {view === 'now' && <InstallGuide />}
-      <ErrorBoundary>{body}</ErrorBoundary>
+      {guideVisible && <InstallGuide />}
+      <ErrorBoundary>
+        <div key={view} className="flex flex-1 flex-col animate-[view-in_150ms_var(--ease-out)]">
+          {body}
+        </div>
+      </ErrorBoundary>
     </div>
   )
 }

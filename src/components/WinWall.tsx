@@ -14,12 +14,20 @@ import {
   updateTaskText,
 } from '../db'
 import { exportJSON, exportWeeklyMarkdown, importJSON } from '../backup'
+import { noticeGranted, noticeSupported } from '../notify'
 import { Screen } from './ui'
 
 const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日']
 
+/** 汉字题款：二〇二六 · 九月 */
+const CN_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九']
+const CN_MONTHS = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二']
+function cnYear(y: number): string {
+  return String(y).split('').map((d) => CN_DIGITS[+d]).join('')
+}
+
 const smallBtnCls =
-  'rounded-2xl border border-ink/15 bg-white/50 px-4 py-3 text-sm text-ink-soft transition active:scale-[0.98]'
+  'rounded-2xl border border-ink/15 bg-paper-deep/60 px-4 py-3 text-sm text-ink-soft transition active:scale-[0.98]'
 
 function pad(n: number): string {
   return String(n).padStart(2, '0')
@@ -47,6 +55,9 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
   const [newTask, setNewTask] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
+  const [notificationDenied, setNotificationDenied] = useState(
+    () => typeof Notification !== 'undefined' && Notification.permission === 'denied',
+  )
 
   async function load(): Promise<void> {
     setDays((await db.days.toArray()).map(normalizeDay))
@@ -153,21 +164,20 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
 
   return (
     <Screen>
-      {/* 页签 */}
+      {/* 页签（计数不折行：导航几何不随数据变化） */}
       <div className="flex gap-2">
         {(['wall', 'rules', 'tasks'] as const).map((t) => (
           <button
             key={t}
             type="button"
             onClick={() => setTab(t)}
-            className={`rounded-full px-4 py-1.5 text-sm transition ${
+            className={`whitespace-nowrap rounded-full px-4 py-2.5 text-sm transition ${
               tab === t ? 'bg-ember text-paper' : 'border border-ink/15 text-ink-soft'
             }`}
           >
             {t === 'wall' ? '成果墙' : t === 'rules' ? `规则库${rules.length > 0 ? ` · ${rules.length}` : ''}` : `任务池${tasks.filter((x) => !x.doneAt).length > 0 ? ` · ${tasks.filter((x) => !x.doneAt).length}` : ''}`}
           </button>
         ))}
-        <span className="ml-auto self-center text-xs text-ink-soft">当前连胜 {chain} 天</span>
       </div>
 
       {tab === 'wall' ? (
@@ -187,12 +197,12 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
                 setSelected(null)
               }}
               aria-label="上个月"
-              className="rounded-full border border-ink/15 px-3 py-1.5 text-sm text-ink-soft transition active:scale-95"
+              className="min-w-[44px] rounded-full border border-ink/15 px-3 py-2 text-sm text-ink-soft transition active:scale-95"
             >
               ‹
             </button>
             <h2 className="font-display text-xl">
-              {y} 年 {m + 1} 月
+              {cnYear(y)} 年 · {CN_MONTHS[m]} 月
             </h2>
             <button
               type="button"
@@ -202,17 +212,19 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
                 setSelected(null)
               }}
               aria-label="下个月"
-              className="rounded-full border border-ink/15 px-3 py-1.5 text-sm text-ink-soft transition active:scale-95 disabled:opacity-30"
+              className="min-w-[44px] rounded-full border border-ink/15 px-3 py-2 text-sm text-ink-soft transition active:scale-95 disabled:opacity-30"
             >
               ›
             </button>
           </div>
           <p className="mt-2 text-center text-xs text-ink-soft">
             本月 {monthWins} 胜{monthEmergency > 0 ? `（含 ${monthEmergency} 灰色）` : ''}
+            {chain > 0 && ` · 连胜 ${chain} 天`}
+            {monthWins + monthEmergency === 0 && !canNext && ' · 今天这一格，从一次 25 分钟专注开始'}
           </p>
 
-          {/* 热力图 */}
-          <div className="mt-4 grid grid-cols-7 gap-1.5">
+          {/* 热力图：庭园式——赢的日子只见色块不见数字，浓淡随成果数 */}
+          <div className="mt-4 grid grid-cols-7 gap-2">
             {WEEKDAYS.map((w) => (
               <div key={w} className="pb-1 text-center text-xs text-ink-soft/70">
                 {w}
@@ -227,19 +239,20 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
               const rec = dayMap.get(k)
               const st = rec ? dayStatus(rec) : 'lost'
               const stLabel = st === 'won' ? '赢' : st === 'emergencyWon' ? '灰色胜利' : future ? '未来' : '未记录'
+              const rich = (rec?.deliverables.length ?? 0) >= 2
               const cls = future
                 ? 'bg-transparent text-ink-soft/30'
                 : st === 'won'
-                  ? 'bg-moss text-paper'
+                  ? `${rich ? 'bg-moss' : 'bg-moss/70'} text-transparent`
                   : st === 'emergencyWon'
-                    ? 'bg-ink-soft/50 text-ink'
+                    ? 'bg-ink-soft/50 text-transparent'
                     : 'bg-paper-deep text-ink-soft/70'
               return (
                 <button
                   key={k}
                   type="button"
                   disabled={future}
-                  aria-label={`${m + 1}月${d}日，${stLabel}`}
+                  aria-label={`${m + 1}月${d}日，${stLabel}${st === 'won' && rich ? '（多个成果）' : ''}`}
                   title={`${m + 1}月${d}日 · ${stLabel}`}
                   onClick={() => setSelected(selected === k ? null : k)}
                   className={`aspect-square rounded-lg text-xs font-medium transition active:scale-95 ${cls} ${
@@ -358,7 +371,7 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
                 导出本周 Markdown
               </button>
             </div>
-            <label className="mt-2 block rounded-2xl border border-ink/15 bg-white/50 px-4 py-3 text-center text-sm text-ink-soft">
+            <label className="mt-2 block rounded-2xl border border-ink/15 bg-paper-deep/60 px-4 py-3 text-center text-sm text-ink-soft">
               导入备份（覆盖现有数据）
               <input
                 type="file"
@@ -367,6 +380,29 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
                 onChange={(e) => void onImportFile(e)}
               />
             </label>
+            {/* 提醒开关：安装卡关掉后这里仍可开启 */}
+            {noticeSupported() && (
+              <div className="mt-3 flex items-center justify-between gap-3 text-sm">
+                <span className="text-ink-soft">应用内提醒</span>
+                {noticeGranted() ? (
+                  <span className="text-moss-deep">已开启</span>
+                ) : notificationDenied ? (
+                  <span className="text-ink-soft/70">已被浏览器拒绝，到站点权限里重新允许</span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void Notification.requestPermission().then(() =>
+                        setNotificationDenied(Notification.permission === 'denied'),
+                      )
+                    }
+                    className="-my-1.5 py-1.5 text-ember-deep underline underline-offset-4"
+                  >
+                    开启
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       ) : tab === 'rules' ? (
@@ -382,7 +418,7 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
             {rules.map((r) => (
               <div
                 key={r.id}
-                className="flex items-center justify-between gap-3 rounded-2xl border border-ink/15 bg-white/50 px-4 py-3"
+                className="flex items-center justify-between gap-3 rounded-2xl border border-ink/15 bg-paper-deep/60 px-4 py-3"
               >
                 <div className="min-w-0">
                   <p className="text-[15px] leading-relaxed">{r.text}</p>
@@ -408,7 +444,7 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
                 if (e.key === 'Enter') void addRule()
               }}
               placeholder="如果……我就……"
-              className="w-full rounded-2xl border border-ink/15 bg-white/50 px-4 py-3 text-[15px] outline-none placeholder:text-ink-soft/50 focus:border-ember/50"
+              className="w-full rounded-2xl border border-ink/15 bg-paper-deep/60 px-4 py-3 text-[15px] outline-none placeholder:text-ink-soft/50 focus:border-ember/50"
             />
             <button
               type="button"
@@ -435,7 +471,7 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
               .map((t) => (
                 <div
                   key={t.id}
-                  className="rounded-2xl border border-ink/15 bg-white/50 px-4 py-3"
+                  className="rounded-2xl border border-ink/15 bg-paper-deep/60 px-4 py-3"
                 >
                   {editingId === t.id ? (
                     <div className="flex items-center gap-2">
@@ -535,7 +571,7 @@ export default function WinWall({ chain, onChanged }: { chain: number; onChanged
                 if (e.key === 'Enter') void addTaskFromInput()
               }}
               placeholder="往池子里放一个候选任务…"
-              className="w-full rounded-2xl border border-ink/15 bg-white/50 px-4 py-3 text-[15px] outline-none placeholder:text-ink-soft/50 focus:border-ember/50"
+              className="w-full rounded-2xl border border-ink/15 bg-paper-deep/60 px-4 py-3 text-[15px] outline-none placeholder:text-ink-soft/50 focus:border-ember/50"
             />
             <button
               type="button"

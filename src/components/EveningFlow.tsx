@@ -11,13 +11,14 @@ import {
 } from '../db'
 import { DEFAULT_ANCHOR_START } from '../config'
 import { sanitizeProofUrl } from '../lib/url'
+import { playChime } from '../chime'
 import { DELIVERABLE_TEMPLATES } from '../copy'
 import { Chip, GhostButton, PrimaryButton, Screen } from './ui'
 
 const textareaCls =
-  'w-full resize-none rounded-2xl border border-ink/15 bg-white/50 px-4 py-3 text-[15px] leading-relaxed outline-none placeholder:text-ink-soft/50 focus:border-ember/50'
+  'w-full resize-none rounded-2xl border border-ink/15 bg-paper-deep/60 px-4 py-3 text-[15px] leading-relaxed outline-none placeholder:text-ink-soft/50 focus:border-ember/50'
 const inputCls =
-  'w-full rounded-2xl border border-ink/15 bg-white/50 px-4 py-3 text-[15px] outline-none placeholder:text-ink-soft/50 focus:border-ember/50'
+  'w-full rounded-2xl border border-ink/15 bg-paper-deep/60 px-4 py-3 text-[15px] outline-none placeholder:text-ink-soft/50 focus:border-ember/50'
 
 /** 复盘 5 问（DESIGN.md §6.1）：逐屏滑动，全部可留空 */
 const QUESTIONS = [
@@ -52,6 +53,21 @@ const STEP = {
   CHECKLIST: 8,
   IF_THEN: 9,
   DONE: 10,
+}
+
+/** 晚间统一进度眉标：7 个节拍一条进度线，取代三套独立计数器（西方 P2） */
+function ProgressHeader({ label, beat }: { label: string; beat: number }) {
+  return (
+    <div>
+      <p className="text-sm text-ink-soft">{label}</p>
+      <div className="mt-2 h-1 w-24 overflow-hidden rounded-full bg-ink/10">
+        <div
+          className="h-full w-full origin-left rounded-full bg-ember transition-transform duration-[250ms]"
+          style={{ transform: `scaleX(${(beat + 1) / 7})` }}
+        />
+      </div>
+    </div>
+  )
 }
 
 /**
@@ -151,6 +167,8 @@ export default function EveningFlow({
     })
     await upsertRuleByText(ifThen)
     onChanged()
+    playChime() // 收束的钟声：一天的仪式在此落定
+    navigator.vibrate?.(200)
     setStep(STEP.DONE)
   }
 
@@ -159,7 +177,7 @@ export default function EveningFlow({
     const q = QUESTIONS[step]
     return (
       <Screen>
-        <p className="text-sm text-ink-soft">晚间复盘 · {step + 1}/5</p>
+        <ProgressHeader label={`晚间 · 复盘 ${step + 1}/5`} beat={0} />
         <h1 className="mt-6 font-display text-3xl leading-snug">{q.title}</h1>
         {q.hint && <p className="mt-3 text-[15px] leading-relaxed text-ink-soft">{q.hint}</p>}
         <textarea
@@ -168,7 +186,7 @@ export default function EveningFlow({
           rows={4}
           maxLength={300}
           placeholder={q.ph || '可以留空'}
-          className={`mt-6 ${textareaCls}`}
+          className="mt-6 w-full resize-none border-b border-ink/25 bg-transparent px-1 py-2 text-[15px] leading-relaxed outline-none transition-colors placeholder:text-ink-soft/50 focus:border-ember/60"
         />
         <div className="mt-auto space-y-3 pb-4 pt-6">
           <PrimaryButton onClick={nextFromReview}>
@@ -184,7 +202,7 @@ export default function EveningFlow({
   if (step === STEP.TRIAGE) {
     return (
       <Screen>
-        <p className="text-sm text-ink-soft">今天的 MIT</p>
+        <ProgressHeader label="晚间 · 处置" beat={1} />
         <div className="mt-4 rounded-2xl bg-paper-deep px-4 py-3 text-[15px] leading-relaxed">{day.mit}</div>
         {triage === 'ask' ? (
           <>
@@ -217,7 +235,7 @@ export default function EveningFlow({
     if (day.deliverables.length > 0) {
       return (
         <Screen>
-          <p className="text-sm text-ink-soft">今日成果</p>
+          <ProgressHeader label="晚间 · 成果" beat={2} />
           <h1 className="mt-6 font-display text-4xl leading-snug">今天已经赢过。</h1>
           <div className="mt-6 space-y-2">
             {day.deliverables.map((d, i) => (
@@ -237,7 +255,7 @@ export default function EveningFlow({
     }
     return (
       <Screen>
-        <p className="text-sm text-ink-soft">今日成果</p>
+        <ProgressHeader label="晚间 · 成果" beat={2} />
         <h1 className="mt-6 font-display text-4xl leading-snug">今天做成了什么？</h1>
         <p className="mt-4 text-[15px] leading-relaxed text-ink-soft">
           还来得及。砍成 10 分钟版本，做完就赢。
@@ -268,7 +286,7 @@ export default function EveningFlow({
           <PrimaryButton disabled={!deliverableText.trim()} onClick={() => void persistDeliverable()}>
             记下，今天赢了
           </PrimaryButton>
-          <GhostButton onClick={() => setStep(STEP.TOMORROW)}>今天没了，直接排明天</GhostButton>
+          <GhostButton onClick={() => setStep(STEP.TOMORROW)}>今天不追了，直接排明天</GhostButton>
         </div>
       </Screen>
     )
@@ -278,7 +296,7 @@ export default function EveningFlow({
   if (step === STEP.TOMORROW) {
     return (
       <Screen>
-        <p className="text-sm text-ink-soft">前夜清障 · 1/3</p>
+        <ProgressHeader label="晚间 · 排明天" beat={3} />
         <h1 className="mt-6 font-display text-3xl leading-snug">明天几点开始，做什么？</h1>
         <p className="mt-3 text-[15px] leading-relaxed text-ink-soft">
           一个看得见的成果。自检：能截图、能提交、能被别人看到吗？
@@ -328,7 +346,7 @@ export default function EveningFlow({
   if (step === STEP.CHECKLIST) {
     return (
       <Screen>
-        <p className="text-sm text-ink-soft">前夜清障 · 2/3</p>
+        <ProgressHeader label="晚间 · 清障" beat={4} />
         <h1 className="mt-6 font-display text-3xl leading-snug">把明天提前摆好</h1>
         <p className="mt-3 text-[15px] leading-relaxed text-ink-soft">
           坐下就能开始，不用做选择。物理隔离诱惑，别指望自控力。
@@ -342,7 +360,7 @@ export default function EveningFlow({
               className={`flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left text-[15px] transition ${
                 checks[i]
                   ? 'border-ember/60 bg-ember/10 text-ink'
-                  : 'border-ink/15 bg-white/50 text-ink-soft'
+                  : 'border-ink/15 bg-paper-deep/60 text-ink-soft'
               }`}
             >
               <span
@@ -367,7 +385,7 @@ export default function EveningFlow({
   if (step === STEP.IF_THEN) {
     return (
       <Screen>
-        <p className="text-sm text-ink-soft">前夜清障 · 3/3</p>
+        <ProgressHeader label="晚间 · 预案" beat={5} />
         <h1 className="mt-6 font-display text-3xl leading-snug">写一条 If-Then</h1>
         <p className="mt-3 text-[15px] leading-relaxed text-ink-soft">
           提前替明早的你，把决策做掉。

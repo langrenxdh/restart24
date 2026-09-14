@@ -1,10 +1,13 @@
 import type { DayRecord } from '../lib/types'
 import { GhostButton, PrimaryButton, Screen } from './ui'
 
+const linkCls = '-my-1.5 py-1.5 text-[15px] text-ink-soft underline underline-offset-4'
+
 /** 深度执行入口：今天的 MIT + 专注/记录交付 + 复位/应急入口。won = 赢后继续模式 */
 export default function TodayCard({
   day,
   won = false,
+  eveningProminent = false,
   onStartFocus,
   onLog,
   onStartEvening,
@@ -14,6 +17,8 @@ export default function TodayCard({
 }: {
   day: DayRecord
   won?: boolean
+  /** 晚间入口的视觉层级：20 点后或需补充修改时升为按钮，白天保持文字链不抢焦点 */
+  eveningProminent?: boolean
   onStartFocus: () => void
   onLog: () => void
   onStartEvening?: () => void
@@ -27,7 +32,7 @@ export default function TodayCard({
   return (
     <Screen>
       {won && (
-        <p className="text-sm text-moss">
+        <p className="text-sm text-moss-deep">
           今天已赢 · {day.deliverables.length} 个成果
         </p>
       )}
@@ -64,7 +69,7 @@ export default function TodayCard({
           onClick={onStartEmergency}
           className="mt-6 w-full rounded-2xl border border-ember/40 bg-ember/10 px-5 py-4 text-left transition active:scale-[0.98]"
         >
-          <span className="block text-[15px] text-ember">还有时间做一个 10 分钟版本。</span>
+          <span className="block text-[15px] text-ember-deep">还有时间做一个 10 分钟版本。</span>
           <span className="mt-1 block text-sm leading-relaxed text-ink-soft">
             失控日应急 · 做完就是灰色胜利，链条不断。
           </span>
@@ -75,22 +80,33 @@ export default function TodayCard({
         </p>
       )}
 
-      <div className="mt-auto space-y-3 pb-4">
+      <div className="mt-auto space-y-2.5 pb-4 pt-10">
         <PrimaryButton onClick={onStartFocus}>开始一轮专注</PrimaryButton>
         {!won && onStartReset && <GhostButton onClick={onStartReset}>午间复位 · 三行卡</GhostButton>}
-        <GhostButton onClick={onLog}>{won ? '追加一个成果' : '直接记录交付物'}</GhostButton>
-        {onStartEvening && (
-          <GhostButton onClick={onStartEvening}>
-            {day.eveningDone ? '晚间流程 · 补充修改' : '晚间流程 · 排好明天'}
-          </GhostButton>
+        {won ? (
+          <GhostButton onClick={onLog}>追加一个成果</GhostButton>
+        ) : (
+          <button type="button" onClick={onLog} className={linkCls}>
+            直接记录交付物
+          </button>
         )}
+        {onStartEvening &&
+          (eveningProminent ? (
+            <GhostButton onClick={onStartEvening}>
+              {day.eveningDone ? '晚间流程 · 补充修改' : '晚间流程 · 排好明天'}
+            </GhostButton>
+          ) : (
+            <button type="button" onClick={onStartEvening} className={linkCls}>
+              晚间流程 · 排好明天
+            </button>
+          ))}
         {!won && onStartEmergency && !lateNight && (
           <button
             type="button"
             onClick={onStartEmergency}
-            className="w-full pt-1 text-sm text-ink-soft/70 underline underline-offset-4"
+            className={`${linkCls} block w-full text-center`}
           >
-            今天崩了
+            今天乱了
           </button>
         )}
       </div>

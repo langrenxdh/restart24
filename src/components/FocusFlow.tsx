@@ -147,7 +147,7 @@ export default function FocusFlow({
           rows={3}
           maxLength={200}
           placeholder="一个看得见的成果，不是「想一下」"
-          className="mt-5 w-full resize-none rounded-2xl border border-ink/15 bg-white/50 px-4 py-3 text-[15px] leading-relaxed outline-none placeholder:text-ink-soft/50 focus:border-ember/50"
+          className="mt-5 w-full resize-none border-b border-ink/25 bg-transparent px-1 py-2 text-[15px] leading-relaxed outline-none transition-colors placeholder:text-ink-soft/50 focus:border-ember/60"
         />
         <div className="mt-3 flex flex-wrap gap-2">
           {DELIVERABLE_TEMPLATES.map((t) => (
@@ -211,13 +211,25 @@ export default function FocusFlow({
         <p className="tnum mt-8 font-display text-[5.5rem] font-bold leading-none tracking-tight">
           {fmt(remaining)}
         </p>
+        {/* 进度轨：一条线，不是表盘 */}
+        <div className="mt-6 h-[3px] w-40 overflow-hidden rounded-full bg-paper-deep">
+          <div
+            className="h-full bg-ember transition-[width] duration-500 ease-linear"
+            style={{
+              width: `${Math.min(100, 100 * (1 - remaining / ((session?.minutes ?? 25) * 60_000)))}%`,
+            }}
+          />
+        </div>
         <p className="mt-8 text-sm text-ink-soft">先把东西做出来，再追求完美。</p>
       </div>
 
       {stuckOpen ? (
-        <div className="fixed inset-0 z-10 flex items-end bg-ink/30" onClick={() => setStuckOpen(false)}>
+        <div
+          className="fixed inset-0 z-10 flex items-end bg-ink/30 animate-[fade-in_180ms_var(--ease-out)]"
+          onClick={() => setStuckOpen(false)}
+        >
           <div
-            className="w-full rounded-t-3xl bg-paper px-6 pb-10 pt-6"
+            className="w-full rounded-t-3xl bg-paper px-6 pb-[max(2.5rem,calc(env(safe-area-inset-bottom)+1rem))] pt-6 animate-[sheet-up_250ms_var(--ease-out)]"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="font-display text-2xl">卡住了？</h2>
@@ -231,7 +243,7 @@ export default function FocusFlow({
                     setUsedStuck(true)
                     setStuckOpen(false)
                   }}
-                  className="w-full rounded-2xl border border-ink/15 bg-white/50 px-4 py-3 text-left active:scale-[0.98] transition"
+                  className="w-full rounded-2xl border border-ink/15 bg-paper-deep/60 px-4 py-3 text-left active:scale-[0.98] transition"
                 >
                   <span className="block text-[15px]">{s.title}</span>
                   <span className="mt-0.5 block text-sm text-ink-soft">{s.desc}</span>

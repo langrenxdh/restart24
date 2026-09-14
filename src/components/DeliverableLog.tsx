@@ -47,14 +47,14 @@ export default function DeliverableLog({
         rows={4}
         maxLength={200}
         placeholder="今天完成的可见成果…"
-        className="mt-5 w-full resize-none rounded-2xl border border-ink/15 bg-white/50 px-4 py-3 text-[15px] leading-relaxed outline-none placeholder:text-ink-soft/50 focus:border-ember/50"
+        className="mt-5 w-full resize-none rounded-2xl border border-ink/15 bg-paper-deep/60 px-4 py-3 text-[15px] leading-relaxed outline-none placeholder:text-ink-soft/50 focus:border-ember/50"
       />
       <input
         value={proofUrl}
         onChange={(e) => setProofUrl(e.target.value)}
         maxLength={500}
         placeholder="成果链接（https://…，可选）"
-        className="mt-3 w-full rounded-2xl border border-ink/15 bg-white/50 px-4 py-3 text-[15px] outline-none placeholder:text-ink-soft/50 focus:border-ember/50"
+        className="mt-3 w-full rounded-2xl border border-ink/15 bg-paper-deep/60 px-4 py-3 text-[15px] outline-none placeholder:text-ink-soft/50 focus:border-ember/50"
       />
       {error && <p className="mt-3 text-sm text-ember">{error}</p>}
       <div className="mt-auto space-y-3 pb-4 pt-6">

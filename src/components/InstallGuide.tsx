@@ -33,7 +33,7 @@ export default function InstallGuide() {
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent)
 
   return (
-    <div className="mb-4 rounded-2xl border border-ink/10 bg-white/50 px-5 py-4">
+    <div className="mb-4 rounded-2xl border border-ink/10 bg-paper-deep/60 px-5 py-4">
       <p className="text-sm font-medium">把它装到主屏</p>
       <p className="mt-1.5 text-sm leading-relaxed text-ink-soft">
         {isIOS ? 'Safari 分享 → 添加到主屏幕' : '浏览器菜单 → 安装应用'}。装完全屏运行、离线可用，明天打开只要 1 秒。

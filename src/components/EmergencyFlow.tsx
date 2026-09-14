@@ -8,9 +8,9 @@ import { notify } from '../notify'
 import { Chip, GhostButton, PrimaryButton, Screen } from './ui'
 
 const textareaCls =
-  'w-full resize-none rounded-2xl border border-ink/15 bg-white/50 px-4 py-3 text-[15px] leading-relaxed outline-none placeholder:text-ink-soft/50 focus:border-ember/50'
+  'w-full resize-none rounded-2xl border border-ink/15 bg-paper-deep/60 px-4 py-3 text-[15px] leading-relaxed outline-none placeholder:text-ink-soft/50 focus:border-ember/50'
 const inputCls =
-  'w-full rounded-2xl border border-ink/15 bg-white/50 px-4 py-3 text-[15px] outline-none placeholder:text-ink-soft/50 focus:border-ember/50'
+  'w-full rounded-2xl border border-ink/15 bg-paper-deep/60 px-4 py-3 text-[15px] outline-none placeholder:text-ink-soft/50 focus:border-ember/50'
 
 const EMERGENCY_CHIPS = ['列出 3 个要点', '写 50 字开头', '修一个最小的 bug', '整理一处笔记']
 
@@ -169,6 +169,15 @@ export default function EmergencyFlow({
           <p className="tnum mt-8 font-display text-[5.5rem] font-bold leading-none tracking-tight">
             {fmt(remaining)}
           </p>
+          {/* 进度轨 */}
+          <div className="mt-6 h-[3px] w-40 overflow-hidden rounded-full bg-paper-deep">
+            <div
+              className="h-full bg-ember transition-[width] duration-500 ease-linear"
+              style={{
+                width: `${Math.min(100, 100 * (1 - remaining / (EMERGENCY_MINUTES * 60_000)))}%`,
+              }}
+            />
+          </div>
           <p className="mt-8 text-sm text-ink-soft">做完就算赢。灰色胜利也是胜利。</p>
         </div>
         <div className="space-y-3 pb-4">
